@@ -153,9 +153,17 @@ hr.sep{border:none;border-top:1px solid #f0efe8;margin:14px 0}
   <div class="login-box">
     <div style="font-size:36px;margin-bottom:12px">🏛</div>
     <h2>Fernandez Llanos | Guicciardi</h2>
-    <p>Sistema de gestión del estudio.<br>¿Quién está ingresando?</p>
-    <button class="login-btn mat" onclick="loginAs('Matias')">👤 Matias</button>
-    <button class="login-btn ign" onclick="loginAs('Ignacio')">👤 Ignacio</button>
+    <p>Sistema de gestión del estudio.<br>Ingresá con tu usuario y contraseña.</p>
+    <div style="margin-bottom:12px">
+      <select id="login-usuario" style="width:100%;padding:10px;border-radius:8px;border:1px solid #d0cfc8;font-size:14px;margin-bottom:8px">
+        <option value="">— Seleccioná tu usuario —</option>
+        <option value="Matias">👤 Matias</option>
+        <option value="Ignacio">👤 Ignacio</option>
+      </select>
+      <input type="password" id="login-password" placeholder="Contraseña" style="width:100%;padding:10px;border-radius:8px;border:1px solid #d0cfc8;font-size:14px;margin-bottom:8px" onkeydown="if(event.key==='Enter')doLogin()">
+      <div id="login-error" style="color:#c0392b;font-size:12px;min-height:16px;margin-bottom:8px"></div>
+    </div>
+    <button class="login-btn" onclick="doLogin()" style="background:#1a6ef5;color:#fff;border-color:#1a6ef5">Ingresar</button>
   </div>
 </div>
 
@@ -450,7 +458,7 @@ function badgeDiasHabiles(fechaStr){
 // ── SUPABASE CONFIG ───────────────────────────────────────────
 // REEMPLAZÁ estos valores con los tuyos de supabase.com
 const SUPA_URL = 'https://zbrdwvlxyewnhbwgrsyj.supabase.co';
-const SUPA_KEY = 'sb_publishable_IMos5Me3IyU7MvCSxfh0qw_AOcuW-Pa';
+const SUPA_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InpicmR3dmx4eWV3bmhid2dyc3lqIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODE1NjQzNzIsImV4cCI6MjA5NzE0MDM3Mn0.6Zk4e9-znToFoQ1jYVPeqMMdrlNX4wedv5C_Qn_bO5Q';
 const RECORD_ID = 1; // ID del registro único en la tabla
 
 const supa = supabase.createClient(SUPA_URL, SUPA_KEY);
@@ -465,6 +473,26 @@ function setSyncStatus(estado) {
   else if (estado === 'syncing') txt.textContent = 'Guardando...';
   else if (estado === 'error') txt.textContent = 'Sin conexión';
   else txt.textContent = 'Conectando...';
+}
+
+async function doLogin() {
+  const nombre = $('login-usuario').value;
+  const pass = $('login-password').value;
+  const errEl = $('login-error');
+  if (!nombre) { errEl.textContent = 'Seleccioná tu usuario.'; return; }
+  if (!pass) { errEl.textContent = 'Ingresá tu contraseña.'; return; }
+  errEl.textContent = 'Verificando...';
+  try {
+    const { data: rows, error } = await supa
+      .from('usuarios')
+      .select('nombre,password')
+      .eq('nombre', nombre)
+      .single();
+    if (error || !rows) { errEl.textContent = 'Usuario no encontrado.'; return; }
+    if (rows.password !== pass) { errEl.textContent = 'Contraseña incorrecta.'; $('login-password').value = ''; return; }
+    errEl.textContent = '';
+    loginAs(nombre);
+  } catch(e) { errEl.textContent = 'Error de conexión.'; }
 }
 
 function loginAs(nombre) {
