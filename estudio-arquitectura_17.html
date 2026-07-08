@@ -391,6 +391,7 @@ let data={
   pagos_directos:[],
   cuotas_mo:[],
   presupuesto_rubros:[],
+  presupuesto_gasto_rubro:[],
   nextId:{cliente:5,obra:5,caja:100,interno:20,honorario:4,gasto:1,tablaHon:4,cuota:15,fondo:1,pagodirecto:1,cuotamo:1}
 };
 
@@ -656,6 +657,7 @@ function fixData(){
   if(!data.pagos_directos)data.pagos_directos=[];
   if(!data.cuotas_mo)data.cuotas_mo=[];
   if(!data.presupuesto_rubros)data.presupuesto_rubros=[];
+  if(!data.presupuesto_gasto_rubro)data.presupuesto_gasto_rubro=[];
   if(!data.nextId.pagodirecto)data.nextId.pagodirecto=1;
   if(!data.nextId.cuotamo)data.nextId.cuotamo=1;
 }
@@ -2137,48 +2139,111 @@ function renderSubTabGastoRubro(){
   const porRubroPD={};
   pagosDir.forEach(p=>{const r=p.rubro||'Sin clasificar';porRubroPD[r]=(porRubroPD[r]||0)+p.monto;});
 
-  const todosRubros=[...new Set([...Object.keys(porRubroCC),...Object.keys(porRubroPD)])].sort();
+  const getPresupGasto=rubro=>{
+    const p=(data.presupuesto_gasto_rubro||[]).find(p=>p.obraId===oid&&p.rubro===rubro);
+    return p?p.monto:0;
+  };
+
+  const todosRubros=[...new Set([
+    ...Object.keys(porRubroCC),
+    ...Object.keys(porRubroPD),
+    ...(data.presupuesto_gasto_rubro||[]).filter(p=>p.obraId===oid).map(p=>p.rubro)
+  ])].sort();
+
   const totalCCsum=Object.values(porRubroCC).reduce((a,v)=>a+v,0);
   const totalPDsum=Object.values(porRubroPD).reduce((a,v)=>a+v,0);
   const totalGeneral=totalCCsum+totalPDsum;
+  const totalPresupuestado=todosRubros.reduce((a,r)=>a+getPresupGasto(r),0);
+  const totalDiferencia=totalPresupuestado-totalGeneral;
 
   let rows='';
   todosRubros.forEach(r=>{
     const cc=porRubroCC[r]||0;
     const pd=porRubroPD[r]||0;
     const tot=cc+pd;
+    const presup=getPresupGasto(r);
+    const dif=presup-tot;
+    const hayPresup=presup>0;
     rows+=`<tr>
       <td><strong>${r}</strong></td>
       <td style="text-align:right;color:#8a6400">${fmtARS(cc)}</td>
       <td style="text-align:right;color:#0d7a6e">${fmtARS(pd)}</td>
       <td style="text-align:right;font-weight:700;color:#b3541e">${fmtARS(tot)}</td>
+      <td style="text-align:right;color:#555">${hayPresup?fmtARS(presup):'—'}</td>
+      <td style="text-align:right;font-weight:600;color:${!hayPresup?'#aaa':(dif>=0?'#1a7a4a':'#c0392b')}">${hayPresup?(dif>=0?'+':'')+fmtARS(dif):'—'}</td>
+      <td><button class="btn btn-sm btn-edit" onclick="openModalPresupGasto(${oid},'${r.replace(/'/g,"\\'")}')">${hayPresup?'✏':'+'}</button></td>
     </tr>`;
   });
 
+  const rubrosDisponibles=getRubrosCC().filter(r=>!todosRubros.includes(r));
+  const addBtnsGasto=rubrosDisponibles.length
+    ?`<div style="margin-bottom:12px;display:flex;flex-wrap:wrap;gap:6px;align-items:center"><span style="font-size:11px;color:#aaa">Presupuestar rubro:</span>${rubrosDisponibles.map(r=>`<button class="btn btn-sm" style="background:#fdf3ec;color:#b3541e;border:1px solid #f0c898;font-size:11px" onclick="openModalPresupGasto(${oid},'${r.replace(/'/g,"\\'")}')">+ ${r}</button>`).join('')}</div>`
+    :'';
+
   el.innerHTML=`
   <div style="background:#fdf3ec;border:1px solid #f0c898;border-radius:12px;padding:16px;margin-bottom:14px">
-    <div style="margin-bottom:14px">
-      <div style="font-size:13px;font-weight:700;color:#b3541e">📊 Gasto real por rubro</div>
-      <div style="font-size:11px;color:#aaa;margin-top:2px">Caja Chica + Pagos directos del cliente, sumados por rubro</div>
+    <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;margin-bottom:14px">
+      <div>
+        <div style="font-size:13px;font-weight:700;color:#b3541e">📊 Gasto real por rubro</div>
+        <div style="font-size:11px;color:#aaa;margin-top:2px">Caja Chica + Pagos directos del cliente, sumados por rubro, vs. lo presupuestado</div>
+      </div>
     </div>
     <div style="display:flex;flex-wrap:wrap;gap:10px;margin-bottom:14px">
-      <div class="metric" style="flex:1;min-width:140px;background:#fff8ec;border:1px solid #f0d898">
+      <div class="metric" style="flex:1;min-width:130px;background:#fff8ec;border:1px solid #f0d898">
         <div class="metric-label" style="color:#8a6400">Total Caja Chica</div>
         <div class="metric-value gold">${fmtARS(totalCCsum)}</div>
       </div>
-      <div class="metric" style="flex:1;min-width:140px;background:#e6f7f5;border:1px solid #9dd9d2">
+      <div class="metric" style="flex:1;min-width:130px;background:#e6f7f5;border:1px solid #9dd9d2">
         <div class="metric-label" style="color:#0d7a6e">Total Pagos directos</div>
         <div class="metric-value" style="color:#0d7a6e">${fmtARS(totalPDsum)}</div>
       </div>
-      <div class="metric" style="flex:1;min-width:140px;background:#fdf3ec;border:2px solid #b3541e">
+      <div class="metric" style="flex:1;min-width:130px;background:#fdf3ec;border:2px solid #b3541e">
         <div class="metric-label" style="color:#b3541e">Gasto total</div>
-        <div class="metric-value" style="color:#b3541e;font-size:22px">${fmtARS(totalGeneral)}</div>
+        <div class="metric-value" style="color:#b3541e;font-size:20px">${fmtARS(totalGeneral)}</div>
+      </div>
+      <div class="metric" style="flex:1;min-width:130px;background:#f5f4f0;border:1px solid #d0cfc8">
+        <div class="metric-label">Presupuestado</div>
+        <div class="metric-value" style="font-size:20px">${fmtARS(totalPresupuestado)}</div>
+      </div>
+      <div class="metric" style="flex:1;min-width:130px;background:${totalDiferencia>=0?'#f0faf3':'#fdf0ef'};border:2px solid ${totalDiferencia>=0?'#1a7a4a':'#c0392b'}">
+        <div class="metric-label" style="color:${totalDiferencia>=0?'#1a7a4a':'#c0392b'}">Diferencia</div>
+        <div class="metric-value ${totalDiferencia>=0?'green':'red'}" style="font-size:20px">${totalDiferencia>=0?'+':''}${fmtARS(totalDiferencia)}</div>
       </div>
     </div>
+    ${addBtnsGasto}
     ${todosRubros.length?`<div style="overflow-x:auto"><table style="font-size:12px"><thead><tr>
-      <th>Rubro</th><th style="text-align:right">Caja Chica</th><th style="text-align:right">Pagos directos</th><th style="text-align:right">Total</th>
+      <th>Rubro</th><th style="text-align:right">Caja Chica</th><th style="text-align:right">Pagos directos</th><th style="text-align:right">Total gastado</th><th style="text-align:right">Presupuestado</th><th style="text-align:right">Diferencia</th><th></th>
     </tr></thead><tbody>${rows}</tbody></table></div>`:'<div class="empty">Sin gastos registrados todavía para esta obra.</div>'}
   </div>`;
+}
+
+function openModalPresupGasto(oid, rubro){
+  const bg=$('modal-bg'),mc=$('modal-content');
+  const existing=(data.presupuesto_gasto_rubro||[]).find(p=>p.obraId===oid&&p.rubro===rubro);
+  mc.innerHTML=`<h2>Presupuesto del rubro</h2>
+    <div style="font-size:15px;font-weight:700;color:#b3541e;margin-bottom:12px">📊 ${rubro}</div>
+    <div class="form-row"><label>Monto presupuestado ($)</label><input id="pg-monto" type="number" placeholder="0" value="${existing?existing.monto:''}"></div>
+    <div class="modal-footer">
+      <button class="btn" onclick="closeModal()">Cancelar</button>
+      ${existing?`<button class="btn btn-danger" onclick="borrarPresupGasto(${oid},'${rubro.replace(/'/g,"\\'")}')">Borrar</button>`:''}
+      <button class="btn btn-primary" onclick="savePresupGasto(${oid},'${rubro.replace(/'/g,"\\'")}')">Guardar</button>
+    </div>`;
+  bg.classList.add('open');
+}
+
+function savePresupGasto(oid, rubro){
+  if(!data.presupuesto_gasto_rubro)data.presupuesto_gasto_rubro=[];
+  const monto=parseFloat(document.getElementById('pg-monto').value)||0;
+  const idx=data.presupuesto_gasto_rubro.findIndex(p=>p.obraId===oid&&p.rubro===rubro);
+  if(idx>=0){data.presupuesto_gasto_rubro[idx].monto=monto;}
+  else{data.presupuesto_gasto_rubro.push({obraId:oid,rubro,monto});}
+  save();closeModal();renderSubTabGastoRubro();showToast('✓ Presupuesto guardado');
+}
+
+function borrarPresupGasto(oid, rubro){
+  if(!confirm('¿Eliminar el presupuesto de este rubro?'))return;
+  data.presupuesto_gasto_rubro=(data.presupuesto_gasto_rubro||[]).filter(p=>!(p.obraId===oid&&p.rubro===rubro));
+  save();closeModal();renderSubTabGastoRubro();showToast('Eliminado');
 }
 
 // Also update renderCajaDetalle to call sub-tab render (for backward compat from otras llamadas)
