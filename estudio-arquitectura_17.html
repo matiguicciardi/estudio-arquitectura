@@ -905,6 +905,7 @@ function renderCaja(){
       {id:'cobrosmo', label:'💰 Cobros MO',          color:'#1a7a4a'},
       {id:'hon',      label:'🏛 Honorarios',         color:'#6c3fc5'},
       {id:'pdir',     label:'🧾 Pagos directos',     color:'#0d7a6e'},
+      {id:'gastorubro',label:'📊 Gasto x Rubro',     color:'#b3541e'},
     ];
     $('sec-caja').innerHTML=`<div class="card">
       <div class="card-header" style="flex-wrap:wrap;gap:10px">
@@ -1061,6 +1062,7 @@ function renderCajaSubTab(){
   else if(cajaSubTab==='cobrosmo')     renderSubTabCobrosMO();
   else if(cajaSubTab==='hon')          renderSubTabHon();
   else if(cajaSubTab==='pdir')         renderSubTabPagosDirect();
+  else if(cajaSubTab==='gastorubro')   renderSubTabGastoRubro();
 }
 
 function renderCaja_REMOVED(){
@@ -2041,7 +2043,7 @@ function renderSubTabPagosDirect(){
       <td>${m.fecha}</td>
       <td><strong>${m.proveedor||'—'}</strong></td>
       <td>${m.desc||'—'}</td>
-      <td><span style="background:#e6f7f5;color:#0d7a6e;padding:2px 7px;border-radius:20px;font-size:11px;font-weight:600">${m.categoria||'—'}</span></td>
+      <td><span style="background:#f3effe;color:#6c3fc5;padding:2px 7px;border-radius:20px;font-size:11px;font-weight:600">${m.rubro||'Sin clasificar'}</span></td>
       <td>${fpBadge(m.formaPago||'Transferencia')}</td>
       <td style="font-weight:600;color:#0d7a6e">${fmtARS(m.monto)}</td>
       <td style="color:#aaa;max-width:100px">${m.obs||'—'}</td>
@@ -2066,7 +2068,7 @@ function renderSubTabPagosDirect(){
       <div class="metric-value" style="color:#0d7a6e;font-size:22px">${fmtARS(total)}</div>
     </div>`:''}
     ${movs.length?`<div style="overflow-x:auto"><table style="font-size:12px"><thead><tr>
-      <th>Fecha</th><th>Proveedor</th><th>Descripción</th><th>Categoría</th><th>F.Pago</th><th>Monto</th><th>Obs.</th><th></th>
+      <th>Fecha</th><th>Proveedor</th><th>Descripción</th><th>Rubro</th><th>F.Pago</th><th>Monto</th><th>Obs.</th><th></th>
     </tr></thead><tbody>${rows}</tbody></table></div>`:'<div class="empty">Sin pagos directos registrados para esta obra.</div>'}
   </div>`;
 }
@@ -2076,6 +2078,7 @@ function openModalPagoDirecto(oid,editId){
   const m=editId?(data.pagos_directos||[]).find(p=>p.id===editId)||{}:{};
   const cats=['Materiales','Instalaciones','Equipos','Servicios profesionales','Impuestos/tasas','Otro'];
   const catOpts=cats.map(c=>`<option${(m.categoria||'')==c?' selected':''}>${c}</option>`).join('');
+  const rubroOpts=getRubrosCC().map(r=>`<option value="${r}"${(m.rubro||'')===r?' selected':''}>${r}</option>`).join('');
   mc.innerHTML=`<h2>${editId?'Editar':'Registrar'} pago directo del cliente</h2>
     <div class="modal-hint">Facturas que el cliente paga sin pasar por la caja del estudio</div>
     <div class="form-row"><label>Fecha</label><input id="pd-fecha" type="date" value="${m.fecha||today()}"></div>
@@ -2083,6 +2086,7 @@ function openModalPagoDirecto(oid,editId){
       <div class="form-row"><label>Proveedor</label><input id="pd-prov" placeholder="Nombre del proveedor" value="${m.proveedor||''}"></div>
       <div class="form-row"><label>Categoría</label><select id="pd-cat">${catOpts}</select></div>
     </div>
+    <div class="form-row"><label>Rubro destino <span style="color:#aaa;font-weight:400">(para cruzar con Caja Chica)</span></label><select id="pd-rubro">${rubroOpts}</select></div>
     <div class="form-row"><label>Descripción</label><input id="pd-desc" placeholder="Qué se pagó" value="${m.desc||''}"></div>
     <div class="form-row2">
       <div class="form-row"><label>Monto ($)</label><input id="pd-monto" type="number" value="${m.monto||''}"></div>
@@ -2100,7 +2104,7 @@ function savePagoDirecto(oid,editId){
   if(!data.pagos_directos)data.pagos_directos=[];
   const obj={
     obraId:oid, fecha:gv('pd-fecha'), proveedor:gv('pd-prov'),
-    categoria:gv('pd-cat'), desc:gv('pd-desc'),
+    categoria:gv('pd-cat'), rubro:gv('pd-rubro'), desc:gv('pd-desc'),
     monto:parseFloat(gv('pd-monto'))||0,
     formaPago:gv('pd-fp'), obs:gv('pd-obs')
   };
@@ -2118,6 +2122,63 @@ function delPagoDirecto(id){
   if(!confirm('¿Eliminar este pago directo?'))return;
   data.pagos_directos=(data.pagos_directos||[]).filter(p=>p.id!==id);
   save();renderSubTabPagosDirect();showToast('Eliminado');
+}
+
+// ── SUB-TAB GASTO X RUBRO (Caja Chica + Pagos Directos) ────────
+function renderSubTabGastoRubro(){
+  const el=$('caja-detalle'); if(!el||!cajaObraId)return;
+  const oid=cajaObraId;
+
+  const gastosCC=data.caja.filter(m=>m.obraId===oid&&m.tipo==='caja_chica');
+  const porRubroCC={};
+  gastosCC.forEach(m=>{const r=(m.rubro&&m.rubro!=='Caja chica')?m.rubro:'Sin clasificar';porRubroCC[r]=(porRubroCC[r]||0)+m.monto;});
+
+  const pagosDir=(data.pagos_directos||[]).filter(p=>p.obraId===oid);
+  const porRubroPD={};
+  pagosDir.forEach(p=>{const r=p.rubro||'Sin clasificar';porRubroPD[r]=(porRubroPD[r]||0)+p.monto;});
+
+  const todosRubros=[...new Set([...Object.keys(porRubroCC),...Object.keys(porRubroPD)])].sort();
+  const totalCCsum=Object.values(porRubroCC).reduce((a,v)=>a+v,0);
+  const totalPDsum=Object.values(porRubroPD).reduce((a,v)=>a+v,0);
+  const totalGeneral=totalCCsum+totalPDsum;
+
+  let rows='';
+  todosRubros.forEach(r=>{
+    const cc=porRubroCC[r]||0;
+    const pd=porRubroPD[r]||0;
+    const tot=cc+pd;
+    rows+=`<tr>
+      <td><strong>${r}</strong></td>
+      <td style="text-align:right;color:#8a6400">${fmtARS(cc)}</td>
+      <td style="text-align:right;color:#0d7a6e">${fmtARS(pd)}</td>
+      <td style="text-align:right;font-weight:700;color:#b3541e">${fmtARS(tot)}</td>
+    </tr>`;
+  });
+
+  el.innerHTML=`
+  <div style="background:#fdf3ec;border:1px solid #f0c898;border-radius:12px;padding:16px;margin-bottom:14px">
+    <div style="margin-bottom:14px">
+      <div style="font-size:13px;font-weight:700;color:#b3541e">📊 Gasto real por rubro</div>
+      <div style="font-size:11px;color:#aaa;margin-top:2px">Caja Chica + Pagos directos del cliente, sumados por rubro</div>
+    </div>
+    <div style="display:flex;flex-wrap:wrap;gap:10px;margin-bottom:14px">
+      <div class="metric" style="flex:1;min-width:140px;background:#fff8ec;border:1px solid #f0d898">
+        <div class="metric-label" style="color:#8a6400">Total Caja Chica</div>
+        <div class="metric-value gold">${fmtARS(totalCCsum)}</div>
+      </div>
+      <div class="metric" style="flex:1;min-width:140px;background:#e6f7f5;border:1px solid #9dd9d2">
+        <div class="metric-label" style="color:#0d7a6e">Total Pagos directos</div>
+        <div class="metric-value" style="color:#0d7a6e">${fmtARS(totalPDsum)}</div>
+      </div>
+      <div class="metric" style="flex:1;min-width:140px;background:#fdf3ec;border:2px solid #b3541e">
+        <div class="metric-label" style="color:#b3541e">Gasto total</div>
+        <div class="metric-value" style="color:#b3541e;font-size:22px">${fmtARS(totalGeneral)}</div>
+      </div>
+    </div>
+    ${todosRubros.length?`<div style="overflow-x:auto"><table style="font-size:12px"><thead><tr>
+      <th>Rubro</th><th style="text-align:right">Caja Chica</th><th style="text-align:right">Pagos directos</th><th style="text-align:right">Total</th>
+    </tr></thead><tbody>${rows}</tbody></table></div>`:'<div class="empty">Sin gastos registrados todavía para esta obra.</div>'}
+  </div>`;
 }
 
 // Also update renderCajaDetalle to call sub-tab render (for backward compat from otras llamadas)
