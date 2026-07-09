@@ -2135,6 +2135,10 @@ function renderSubTabGastoRubro(){
   const porRubroCC={};
   gastosCC.forEach(m=>{const r=(m.rubro&&m.rubro!=='Caja chica')?m.rubro:'Sin clasificar';porRubroCC[r]=(porRubroCC[r]||0)+m.monto;});
 
+  const gastosMO=data.caja.filter(m=>m.obraId===oid&&m.tipo==='mano_obra');
+  const porRubroMO={};
+  gastosMO.forEach(m=>{const r=m.rubro||'Sin clasificar';porRubroMO[r]=(porRubroMO[r]||0)+m.monto;});
+
   const pagosDir=(data.pagos_directos||[]).filter(p=>p.obraId===oid);
   const porRubroPD={};
   pagosDir.forEach(p=>{const r=p.rubro||'Sin clasificar';porRubroPD[r]=(porRubroPD[r]||0)+p.monto;});
@@ -2146,27 +2150,31 @@ function renderSubTabGastoRubro(){
 
   const todosRubros=[...new Set([
     ...Object.keys(porRubroCC),
+    ...Object.keys(porRubroMO),
     ...Object.keys(porRubroPD),
     ...(data.presupuesto_gasto_rubro||[]).filter(p=>p.obraId===oid).map(p=>p.rubro)
   ])].sort();
 
   const totalCCsum=Object.values(porRubroCC).reduce((a,v)=>a+v,0);
+  const totalMOsum=Object.values(porRubroMO).reduce((a,v)=>a+v,0);
   const totalPDsum=Object.values(porRubroPD).reduce((a,v)=>a+v,0);
-  const totalGeneral=totalCCsum+totalPDsum;
+  const totalGeneral=totalCCsum+totalMOsum+totalPDsum;
   const totalPresupuestado=todosRubros.reduce((a,r)=>a+getPresupGasto(r),0);
   const totalDiferencia=totalPresupuestado-totalGeneral;
 
   let rows='';
   todosRubros.forEach(r=>{
     const cc=porRubroCC[r]||0;
+    const mo=porRubroMO[r]||0;
     const pd=porRubroPD[r]||0;
-    const tot=cc+pd;
+    const tot=cc+mo+pd;
     const presup=getPresupGasto(r);
     const dif=presup-tot;
     const hayPresup=presup>0;
     rows+=`<tr>
       <td><strong>${r}</strong></td>
       <td style="text-align:right;color:#8a6400">${fmtARS(cc)}</td>
+      <td style="text-align:right;color:#1a6ef5">${fmtARS(mo)}</td>
       <td style="text-align:right;color:#0d7a6e">${fmtARS(pd)}</td>
       <td style="text-align:right;font-weight:700;color:#b3541e">${fmtARS(tot)}</td>
       <td style="text-align:right;color:#555">${hayPresup?fmtARS(presup):'—'}</td>
@@ -2175,7 +2183,7 @@ function renderSubTabGastoRubro(){
     </tr>`;
   });
 
-  const rubrosDisponibles=getRubrosCC().filter(r=>!todosRubros.includes(r));
+  const rubrosDisponibles=[...new Set([...getRubrosCC(),...RUBROS_MO])].filter(r=>!todosRubros.includes(r));
   const addBtnsGasto=rubrosDisponibles.length
     ?`<div style="margin-bottom:12px;display:flex;flex-wrap:wrap;gap:6px;align-items:center"><span style="font-size:11px;color:#aaa">Presupuestar rubro:</span>${rubrosDisponibles.map(r=>`<button class="btn btn-sm" style="background:#fdf3ec;color:#b3541e;border:1px solid #f0c898;font-size:11px" onclick="openModalPresupGasto(${oid},'${r.replace(/'/g,"\\'")}')">+ ${r}</button>`).join('')}</div>`
     :'';
@@ -2185,34 +2193,38 @@ function renderSubTabGastoRubro(){
     <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;margin-bottom:14px">
       <div>
         <div style="font-size:13px;font-weight:700;color:#b3541e">📊 Gasto real por rubro</div>
-        <div style="font-size:11px;color:#aaa;margin-top:2px">Caja Chica + Pagos directos del cliente, sumados por rubro, vs. lo presupuestado</div>
+        <div style="font-size:11px;color:#aaa;margin-top:2px">Caja Chica + Mano de Obra + Pagos directos del cliente, sumados por rubro, vs. lo presupuestado</div>
       </div>
     </div>
     <div style="display:flex;flex-wrap:wrap;gap:10px;margin-bottom:14px">
-      <div class="metric" style="flex:1;min-width:130px;background:#fff8ec;border:1px solid #f0d898">
-        <div class="metric-label" style="color:#8a6400">Total Caja Chica</div>
-        <div class="metric-value gold">${fmtARS(totalCCsum)}</div>
+      <div class="metric" style="flex:1;min-width:120px;background:#fff8ec;border:1px solid #f0d898">
+        <div class="metric-label" style="color:#8a6400">Caja Chica</div>
+        <div class="metric-value gold" style="font-size:17px">${fmtARS(totalCCsum)}</div>
       </div>
-      <div class="metric" style="flex:1;min-width:130px;background:#e6f7f5;border:1px solid #9dd9d2">
-        <div class="metric-label" style="color:#0d7a6e">Total Pagos directos</div>
-        <div class="metric-value" style="color:#0d7a6e">${fmtARS(totalPDsum)}</div>
+      <div class="metric" style="flex:1;min-width:120px;background:#eaf1fe;border:1px solid #c0d8fa">
+        <div class="metric-label" style="color:#1a6ef5">Mano de Obra</div>
+        <div class="metric-value" style="color:#1a6ef5;font-size:17px">${fmtARS(totalMOsum)}</div>
       </div>
-      <div class="metric" style="flex:1;min-width:130px;background:#fdf3ec;border:2px solid #b3541e">
+      <div class="metric" style="flex:1;min-width:120px;background:#e6f7f5;border:1px solid #9dd9d2">
+        <div class="metric-label" style="color:#0d7a6e">Pagos directos</div>
+        <div class="metric-value" style="color:#0d7a6e;font-size:17px">${fmtARS(totalPDsum)}</div>
+      </div>
+      <div class="metric" style="flex:1;min-width:120px;background:#fdf3ec;border:2px solid #b3541e">
         <div class="metric-label" style="color:#b3541e">Gasto total</div>
-        <div class="metric-value" style="color:#b3541e;font-size:20px">${fmtARS(totalGeneral)}</div>
+        <div class="metric-value" style="color:#b3541e;font-size:19px">${fmtARS(totalGeneral)}</div>
       </div>
-      <div class="metric" style="flex:1;min-width:130px;background:#f5f4f0;border:1px solid #d0cfc8">
+      <div class="metric" style="flex:1;min-width:120px;background:#f5f4f0;border:1px solid #d0cfc8">
         <div class="metric-label">Presupuestado</div>
-        <div class="metric-value" style="font-size:20px">${fmtARS(totalPresupuestado)}</div>
+        <div class="metric-value" style="font-size:19px">${fmtARS(totalPresupuestado)}</div>
       </div>
-      <div class="metric" style="flex:1;min-width:130px;background:${totalDiferencia>=0?'#f0faf3':'#fdf0ef'};border:2px solid ${totalDiferencia>=0?'#1a7a4a':'#c0392b'}">
+      <div class="metric" style="flex:1;min-width:120px;background:${totalDiferencia>=0?'#f0faf3':'#fdf0ef'};border:2px solid ${totalDiferencia>=0?'#1a7a4a':'#c0392b'}">
         <div class="metric-label" style="color:${totalDiferencia>=0?'#1a7a4a':'#c0392b'}">Diferencia</div>
-        <div class="metric-value ${totalDiferencia>=0?'green':'red'}" style="font-size:20px">${totalDiferencia>=0?'+':''}${fmtARS(totalDiferencia)}</div>
+        <div class="metric-value ${totalDiferencia>=0?'green':'red'}" style="font-size:19px">${totalDiferencia>=0?'+':''}${fmtARS(totalDiferencia)}</div>
       </div>
     </div>
     ${addBtnsGasto}
     ${todosRubros.length?`<div style="overflow-x:auto"><table style="font-size:12px"><thead><tr>
-      <th>Rubro</th><th style="text-align:right">Caja Chica</th><th style="text-align:right">Pagos directos</th><th style="text-align:right">Total gastado</th><th style="text-align:right">Presupuestado</th><th style="text-align:right">Diferencia</th><th></th>
+      <th>Rubro</th><th style="text-align:right">Caja Chica</th><th style="text-align:right">Mano de Obra</th><th style="text-align:right">Pagos directos</th><th style="text-align:right">Total gastado</th><th style="text-align:right">Presupuestado</th><th style="text-align:right">Diferencia</th><th></th>
     </tr></thead><tbody>${rows}</tbody></table></div>`:'<div class="empty">Sin gastos registrados todavía para esta obra.</div>'}
   </div>`;
 }
