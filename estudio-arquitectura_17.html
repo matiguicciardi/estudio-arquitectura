@@ -1,10 +1,10 @@
 <!DOCTYPE html>
-<html lang="es">
-<head>
-<meta charset="UTF-8">
+<!-- saved from url=(0245)file:///Users/matiguicciardi/Library/Application%20Support/Claude/local-agent-mode-sessions/fee7bd4b-8388-4d1c-ba51-fff693cda1ab/263e07ab-2cbd-47fd-83ee-165b45b82bf0/local_7fc57a45-54f4-43cc-a689-f105d54c0830/outputs/estudio-arquitectura_17.html -->
+<html lang="es"><head><meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Estudio de Arquitectura — Sistema de Gestión</title>
-<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="./estudio-arquitectura_17_files/supabase-js@2"></script>
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
 .login-screen{position:fixed;inset:0;background:#f5f4f0;z-index:999;display:flex;align-items:center;justify-content:center;flex-direction:column;gap:20px}
@@ -160,7 +160,7 @@ hr.sep{border:none;border-top:1px solid #f0efe8;margin:14px 0}
         <option value="Matias">👤 Matias</option>
         <option value="Ignacio">👤 Ignacio</option>
       </select>
-      <input type="password" id="login-password" placeholder="Contraseña" style="width:100%;padding:10px;border-radius:8px;border:1px solid #d0cfc8;font-size:14px;margin-bottom:8px" onkeydown="if(event.key==='Enter')doLogin()">
+      <input type="password" id="login-password" placeholder="Contraseña" style="width:100%;padding:10px;border-radius:8px;border:1px solid #d0cfc8;font-size:14px;margin-bottom:8px" onkeydown="if(event.key===&#39;Enter&#39;)doLogin()">
       <div id="login-error" style="color:#c0392b;font-size:12px;min-height:16px;margin-bottom:8px"></div>
     </div>
     <button class="login-btn" onclick="doLogin()" style="background:#1a6ef5;color:#fff;border-color:#1a6ef5">Ingresar</button>
@@ -172,7 +172,7 @@ hr.sep{border:none;border-top:1px solid #f0efe8;margin:14px 0}
   <div class="topbar-actions">
     <button class="btn btn-undo" id="btn-undo" onclick="undoAction()" title="Deshacer último cambio">↩ Deshacer<span class="undo-badge" id="undo-badge" style="display:none">0</span></button>
     <button class="btn btn-export" onclick="exportarDatos()">⬇ Exportar datos</button>
-    <button class="btn btn-import" onclick="document.getElementById('fi').click()">⬆ Importar datos</button>
+    <button class="btn btn-import" onclick="document.getElementById(&#39;fi&#39;).click()">⬆ Importar datos</button>
     <input type="file" id="fi" accept=".json" style="display:none" onchange="importarDatos(event)">
     <div class="sync-status" id="sync-status"><span class="sync-dot" id="sync-dot"></span><span id="sync-txt">Conectando...</span></div>
     <div style="font-size:12px;font-weight:600;color:#555;padding:6px 12px;background:#f5f4f0;border-radius:8px;border:1px solid #e0dfd8" id="user-badge"></div>
@@ -180,13 +180,13 @@ hr.sep{border:none;border-top:1px solid #f0efe8;margin:14px 0}
   </div>
 </div>
 <div class="nav">
-  <button class="active" onclick="showSection('dashboard',this)">Panel general</button>
-  <button onclick="showSection('obras',this)">Obras</button>
-  <button onclick="showSection('caja',this)">Caja de obras</button>
-  <button onclick="showSection('internos',this)">Movimientos internos</button>
-  <button onclick="showSection('tablaHon',this)">📋 Tabla de honorarios</button>
-  <button onclick="showSection('clientes',this)">Clientes</button>
-  <button onclick="showSection('gastos',this)">Gastos del estudio</button>
+  <button class="active" onclick="showSection(&#39;dashboard&#39;,this)">Panel general</button>
+  <button onclick="showSection(&#39;obras&#39;,this)">Obras</button>
+  <button onclick="showSection(&#39;caja&#39;,this)">Caja de obras</button>
+  <button onclick="showSection(&#39;internos&#39;,this)">Movimientos internos</button>
+  <button onclick="showSection(&#39;tablaHon&#39;,this)">📋 Tabla de honorarios</button>
+  <button onclick="showSection(&#39;clientes&#39;,this)">Clientes</button>
+  <button onclick="showSection(&#39;gastos&#39;,this)">Gastos del estudio</button>
 </div>
 <div class="main">
   <div id="sec-dashboard" class="section active"></div>
@@ -649,6 +649,20 @@ function fixData(){
   if(!data.tablasHon)data.tablasHon=[];
   if(!data.fondos)data.fondos=[];
   if(!data.rubrosExtra)data.rubrosExtra=[];
+  if(!data.rubrosCC)data.rubrosCC=[];
+  if(!data.rubrosTodos||!data._rubrosMigrados){
+    const seed=new Set([
+      ...(data.rubrosTodos||[]),
+      ...RUBROS_MO,...RUBROS_CC_DEFAULT,
+      ...(data.rubrosExtra||[]),...(data.rubrosCC||[]),
+      ...(data.caja||[]).map(m=>m.rubro),
+      ...(data.pagos_directos||[]).map(p=>p.rubro),
+      ...(data.presupuesto_rubros||[]).map(p=>p.rubro),
+      ...(data.presupuesto_gasto_rubro||[]).map(p=>p.rubro)
+    ].filter(Boolean));
+    data.rubrosTodos=[...seed];
+    data._rubrosMigrados=true;
+  }
   if(!data.tipoCambio)data.tipoCambio=1420;
   if(!data.nextId.interno)data.nextId.interno=1;
   if(!data.nextId.tablaHon)data.nextId.tablaHon=1;
@@ -1170,8 +1184,8 @@ function renderCajaDetalle_LEGACY(){
 
   // Desglose MO por rubro
   const moMovs=data.caja.filter(m=>m.obraId===oid&&m.tipo==='mano_obra');
-  // Rubros: siempre mostrar todos los preset + extras, independientemente de si tienen movimientos
-  const rubrosUsados=[...RUBROS_MO,...(data.rubrosExtra||[])];
+  // Rubros: siempre mostrar todos los rubros de la lista maestra, independientemente de si tienen movimientos
+  const rubrosUsados=getRubrosTodos();
 
   const smRec=recibidoSocioObra(oid,MAT),smPag=pagadoSocioObra(oid,MAT),sm=smRec-smPag;
   const siRec=recibidoSocioObra(oid,IGN),siPag=pagadoSocioObra(oid,IGN),si=siRec-siPag;
@@ -2183,12 +2197,30 @@ function renderSubTabGastoRubro(){
     </tr>`;
   });
 
-  const rubrosDisponibles=[...new Set([...getRubrosCC(),...RUBROS_MO])].filter(r=>!todosRubros.includes(r));
+  const rubrosDisponibles=getRubrosTodos().filter(r=>!todosRubros.includes(r));
   const addBtnsGasto=rubrosDisponibles.length
     ?`<div style="margin-bottom:12px;display:flex;flex-wrap:wrap;gap:6px;align-items:center"><span style="font-size:11px;color:#aaa">Presupuestar rubro:</span>${rubrosDisponibles.map(r=>`<button class="btn btn-sm" style="background:#fdf3ec;color:#b3541e;border:1px solid #f0c898;font-size:11px" onclick="openModalPresupGasto(${oid},'${r.replace(/'/g,"\\'")}')">+ ${r}</button>`).join('')}</div>`
     :'';
 
+  const gestionRubros=`
+  <div style="background:#f5f4f0;border:1px solid #d0cfc8;border-radius:12px;padding:16px;margin-bottom:14px">
+    <div style="font-size:13px;font-weight:700;color:#1a1a1a;margin-bottom:4px">🏷️ Gestionar rubros</div>
+    <div style="font-size:11px;color:#aaa;margin-bottom:10px">Los rubros que agregues o edites acá quedan disponibles para elegir en Mano de Obra y en Caja Chica.</div>
+    <div style="display:flex;gap:6px;margin-bottom:12px">
+      <input id="rubro-global-nuevo" placeholder="Nombre del rubro nuevo..." style="flex:1;padding:6px 10px;border-radius:8px;border:1px solid #d0cfc8;font-size:12px">
+      <button type="button" class="btn btn-sm btn-primary" onclick="agregarRubroGlobal()">+ Agregar rubro</button>
+    </div>
+    <div style="display:flex;flex-wrap:wrap;gap:6px">
+      ${getRubrosTodos().map(r=>`<span style="display:inline-flex;align-items:center;gap:4px;background:#fff;border:1px solid #d0cfc8;border-radius:20px;padding:3px 4px 3px 10px;font-size:11px;font-weight:600">
+        ${r}
+        <button type="button" title="Editar" onclick="abrirEditarRubro('${r.replace(/'/g,"\\'")}')" style="border:none;background:#eaf1fe;color:#1a6ef5;border-radius:50%;width:20px;height:20px;cursor:pointer;font-size:10px;line-height:1">✏</button>
+        <button type="button" title="Eliminar" onclick="eliminarRubroGlobal('${r.replace(/'/g,"\\'")}')" style="border:none;background:#fdf0ef;color:#c0392b;border-radius:50%;width:20px;height:20px;cursor:pointer;font-size:10px;line-height:1">✕</button>
+      </span>`).join('')}
+    </div>
+  </div>`;
+
   el.innerHTML=`
+  ${gestionRubros}
   <div style="background:#fdf3ec;border:1px solid #f0c898;border-radius:12px;padding:16px;margin-bottom:14px">
     <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;margin-bottom:14px">
       <div>
@@ -2387,6 +2419,58 @@ function imprimirGastoRubro(oid){
   $('print-area').style.display='none';
 }
 
+function agregarRubroGlobal(){
+  const inp=$('rubro-global-nuevo');
+  if(!inp)return;
+  const val=inp.value.trim();
+  if(!val)return alert('Escribí el nombre del rubro');
+  if(!data.rubrosTodos)data.rubrosTodos=[];
+  if(getRubrosTodos().some(r=>r.toLowerCase()===val.toLowerCase()))return alert('Ese rubro ya existe');
+  data.rubrosTodos.push(val);
+  save();
+  inp.value='';
+  renderCajaDetalle();
+  showToast('✓ Rubro "'+val+'" agregado');
+}
+
+function abrirEditarRubro(rubro){
+  const bg=$('modal-bg'),mc=$('modal-content');
+  mc.innerHTML=`<h2>Editar rubro</h2>
+    <div class="form-row"><label>Nombre del rubro</label><input id="rubro-edit-nombre" value="${rubro.replace(/"/g,'&quot;')}"></div>
+    <div style="font-size:11px;color:#aaa;margin-bottom:10px">Si cambiás el nombre, se actualiza automáticamente en todos los movimientos de Mano de Obra, Caja Chica, Pagos directos y presupuestos que ya usan este rubro.</div>
+    <div class="modal-footer">
+      <button class="btn" onclick="closeModal()">Cancelar</button>
+      <button class="btn btn-danger" onclick="eliminarRubroGlobal('${rubro.replace(/'/g,"\\'")}')">Eliminar</button>
+      <button class="btn btn-primary" onclick="guardarRenombreRubro('${rubro.replace(/'/g,"\\'")}')">Guardar</button>
+    </div>`;
+  bg.classList.add('open');
+}
+
+function guardarRenombreRubro(oldName){
+  const nuevo=(gv('rubro-edit-nombre')||'').trim();
+  if(!nuevo)return alert('Escribí un nombre');
+  if(nuevo!==oldName && getRubrosTodos().some(r=>r.toLowerCase()===nuevo.toLowerCase()))return alert('Ya existe un rubro con ese nombre');
+  data.rubrosTodos=getRubrosTodos().map(r=>r===oldName?nuevo:r);
+  data.caja.forEach(m=>{if(m.rubro===oldName)m.rubro=nuevo;});
+  (data.presupuesto_rubros||[]).forEach(p=>{if(p.rubro===oldName)p.rubro=nuevo;});
+  (data.presupuesto_gasto_rubro||[]).forEach(p=>{if(p.rubro===oldName)p.rubro=nuevo;});
+  (data.pagos_directos||[]).forEach(p=>{if(p.rubro===oldName)p.rubro=nuevo;});
+  save();closeModal();renderCajaDetalle();showToast('✓ Rubro renombrado a "'+nuevo+'"');
+}
+
+function eliminarRubroGlobal(rubro){
+  const enUso = data.caja.some(m=>m.rubro===rubro)
+    || (data.presupuesto_rubros||[]).some(p=>p.rubro===rubro)
+    || (data.presupuesto_gasto_rubro||[]).some(p=>p.rubro===rubro)
+    || (data.pagos_directos||[]).some(p=>p.rubro===rubro);
+  const msg = enUso
+    ? '"'+rubro+'" tiene movimientos o presupuestos cargados. Se va a quitar de la lista para elegir en nuevos movimientos, pero los registros existentes van a mantener este rubro. ¿Continuar?'
+    : '¿Eliminar el rubro "'+rubro+'"?';
+  if(!confirm(msg))return;
+  data.rubrosTodos=getRubrosTodos().filter(r=>r!==rubro);
+  save();closeModal();renderCajaDetalle();showToast('Rubro eliminado');
+}
+
 // Also update renderCajaDetalle to call sub-tab render (for backward compat from otras llamadas)
 function renderCajaDetalle(){
   renderCajaSubTab();
@@ -2554,7 +2638,7 @@ function openModal(tipo,extra,editId){
     const oid=extra;
     const m=editId?data.caja.find(x=>x.id===editId):{};
     const esEdicion=!!editId;
-    const rubrosOpts=[...RUBROS_MO,...(data.rubrosExtra||[])].map(r=>`<option${(m.rubro||'Albañilería')===r?' selected':''}>${r}</option>`).join('');
+    const rubrosOpts=getRubrosTodos().map(r=>`<option${(m.rubro||'Albañilería')===r?' selected':''}>${r}</option>`).join('');
     const quienOpts=SOCIOS.map(s=>`<option value="${s}"${(m.socio||MAT)===s?' selected':''}>${s===MAT?'Matias':'Ignacio'}</option>`).join('');
     html=`<h2>${esEdicion?'Editar movimiento':'+ Ingreso / Pago — Mano de obra'}</h2>
     ${!esEdicion?`<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:16px">
@@ -3238,10 +3322,10 @@ function agregarRubrosCC(){
   if(!inp)return;
   const val=inp.value.trim();
   if(!val)return alert('Escribí el nombre del rubro');
-  if(!data.rubrosCC)data.rubrosCC=[];
-  const rubrosActuales=getRubrosCC();
-  if(rubrosActuales.includes(val))return alert('Ese rubro ya existe');
-  data.rubrosCC.push(val);
+  if(!data.rubrosTodos)data.rubrosTodos=[];
+  const rubrosActuales=getRubrosTodos();
+  if(rubrosActuales.some(r=>r.toLowerCase()===val.toLowerCase()))return alert('Ese rubro ya existe');
+  data.rubrosTodos.push(val);
   save();
   const sel=$('f-rubro-cc');
   if(sel){const opt=document.createElement('option');opt.text=val;opt.value=val;opt.selected=true;sel.appendChild(opt);}
@@ -3249,9 +3333,11 @@ function agregarRubrosCC(){
   showToast('\u2713 Rubro "'+val+'" agregado');
 }
 function getRubrosCC(){
-  const base=RUBROS_CC_DEFAULT;
-  const extra=data.rubrosCC||[];
-  return [...base,...extra.filter(r=>!base.includes(r))];
+  return getRubrosTodos();
+}
+function getRubrosTodos(){
+  if(!data.rubrosTodos)data.rubrosTodos=[];
+  return [...new Set(data.rubrosTodos)].sort((a,b)=>a.localeCompare(b,'es'));
 }
 function saveIngresoMO(oid){
   const monto=parseFloat(($('f-monto-ingreso-mo')||{}).value)||0;
@@ -3410,9 +3496,9 @@ function agregarRubroExtra(){
   if(!inp)return;
   const val=inp.value.trim();
   if(!val)return alert('Escribí el nombre del rubro');
-  if(!data.rubrosExtra)data.rubrosExtra=[];
-  if([...RUBROS_MO,...data.rubrosExtra].includes(val))return alert('Ese rubro ya existe');
-  data.rubrosExtra.push(val);
+  if(!data.rubrosTodos)data.rubrosTodos=[];
+  if(getRubrosTodos().some(r=>r.toLowerCase()===val.toLowerCase()))return alert('Ese rubro ya existe');
+  data.rubrosTodos.push(val);
   save();
   const sel=$('f-rubro');
   if(sel){const opt=document.createElement('option');opt.text=val;opt.selected=true;sel.appendChild(opt);}
@@ -4036,5 +4122,6 @@ function imprimirHonorarios(){
 
 // La app se inicializa en loginAs() después de cargar datos de Supabase
 </script>
-</body>
-</html>
+
+
+</body></html>
