@@ -392,6 +392,7 @@ let data={
   cuotas_mo:[],
   presupuesto_rubros:[],
   presupuesto_gasto_rubro:[],
+  presupuesto_proyectado_rubro:[],
   nextId:{cliente:5,obra:5,caja:100,interno:20,honorario:4,gasto:1,tablaHon:4,cuota:15,fondo:1,pagodirecto:1,cuotamo:1}
 };
 
@@ -658,7 +659,8 @@ function fixData(){
       ...(data.caja||[]).map(m=>m.rubro),
       ...(data.pagos_directos||[]).map(p=>p.rubro),
       ...(data.presupuesto_rubros||[]).map(p=>p.rubro),
-      ...(data.presupuesto_gasto_rubro||[]).map(p=>p.rubro)
+      ...(data.presupuesto_gasto_rubro||[]).map(p=>p.rubro),
+      ...(data.presupuesto_proyectado_rubro||[]).map(p=>p.rubro)
     ].filter(Boolean));
     data.rubrosTodos=[...seed];
     data._rubrosMigrados=true;
@@ -672,6 +674,7 @@ function fixData(){
   if(!data.cuotas_mo)data.cuotas_mo=[];
   if(!data.presupuesto_rubros)data.presupuesto_rubros=[];
   if(!data.presupuesto_gasto_rubro)data.presupuesto_gasto_rubro=[];
+  if(!data.presupuesto_proyectado_rubro)data.presupuesto_proyectado_rubro=[];
   if(!data.nextId.pagodirecto)data.nextId.pagodirecto=1;
   if(!data.nextId.cuotamo)data.nextId.cuotamo=1;
 }
@@ -2162,19 +2165,27 @@ function renderSubTabGastoRubro(){
     return p?p.monto:0;
   };
 
+  const getProyectado=rubro=>{
+    const p=(data.presupuesto_proyectado_rubro||[]).find(p=>p.obraId===oid&&p.rubro===rubro);
+    return p?p.monto:0;
+  };
+
   const todosRubros=[...new Set([
     ...Object.keys(porRubroCC),
     ...Object.keys(porRubroMO),
     ...Object.keys(porRubroPD),
-    ...(data.presupuesto_gasto_rubro||[]).filter(p=>p.obraId===oid).map(p=>p.rubro)
+    ...(data.presupuesto_gasto_rubro||[]).filter(p=>p.obraId===oid).map(p=>p.rubro),
+    ...(data.presupuesto_proyectado_rubro||[]).filter(p=>p.obraId===oid).map(p=>p.rubro)
   ])].sort();
 
   const totalCCsum=Object.values(porRubroCC).reduce((a,v)=>a+v,0);
   const totalMOsum=Object.values(porRubroMO).reduce((a,v)=>a+v,0);
   const totalPDsum=Object.values(porRubroPD).reduce((a,v)=>a+v,0);
   const totalGeneral=totalCCsum+totalMOsum+totalPDsum;
+  const totalProyectado=todosRubros.reduce((a,r)=>a+getProyectado(r),0);
+  const totalGeneralConProy=totalGeneral+totalProyectado;
   const totalPresupuestado=todosRubros.reduce((a,r)=>a+getPresupGasto(r),0);
-  const totalDiferencia=totalPresupuestado-totalGeneral;
+  const totalDiferencia=totalPresupuestado-totalGeneralConProy;
 
   let rows='';
   todosRubros.forEach(r=>{
@@ -2182,8 +2193,10 @@ function renderSubTabGastoRubro(){
     const mo=porRubroMO[r]||0;
     const pd=porRubroPD[r]||0;
     const tot=cc+mo+pd;
+    const proy=getProyectado(r);
+    const totConProy=tot+proy;
     const presup=getPresupGasto(r);
-    const dif=presup-tot;
+    const dif=presup-totConProy;
     const hayPresup=presup>0;
     rows+=`<tr>
       <td><strong>${r}</strong></td>
@@ -2191,6 +2204,8 @@ function renderSubTabGastoRubro(){
       <td style="text-align:right;color:#1a6ef5">${fmtARS(mo)}</td>
       <td style="text-align:right;color:#0d7a6e">${fmtARS(pd)}</td>
       <td style="text-align:right;font-weight:700;color:#b3541e">${fmtARS(tot)}</td>
+      <td style="text-align:right"><input type="number" value="${proy||''}" placeholder="0" style="width:100px;text-align:right;padding:4px 6px;border-radius:6px;border:1px solid #d0cfc8;font-size:12px;color:#7a4fb5" onchange="setProyectadoRubro(${oid},'${r.replace(/'/g,"\\'")}',this.value)"></td>
+      <td style="text-align:right;font-weight:700;color:#333">${fmtARS(totConProy)}</td>
       <td style="text-align:right;color:#555">${hayPresup?fmtARS(presup):'—'}</td>
       <td style="text-align:right;font-weight:600;color:${!hayPresup?'#aaa':(dif>=0?'#1a7a4a':'#c0392b')}">${hayPresup?(dif>=0?'+':'')+fmtARS(dif):'—'}</td>
       <td><button class="btn btn-sm btn-edit" onclick="openModalPresupGasto(${oid},'${r.replace(/'/g,"\\'")}')">${hayPresup?'✏':'+'}</button></td>
@@ -2246,6 +2261,10 @@ function renderSubTabGastoRubro(){
         <div class="metric-label" style="color:#b3541e">Gasto total</div>
         <div class="metric-value" style="color:#b3541e;font-size:19px">${fmtARS(totalGeneral)}</div>
       </div>
+      <div class="metric" style="flex:1;min-width:120px;background:#f3edfb;border:1px solid #d4bdf0">
+        <div class="metric-label" style="color:#7a4fb5">Proyectado</div>
+        <div class="metric-value" style="color:#7a4fb5;font-size:19px">${fmtARS(totalProyectado)}</div>
+      </div>
       <div class="metric" style="flex:1;min-width:120px;background:#f5f4f0;border:1px solid #d0cfc8">
         <div class="metric-label">Presupuestado</div>
         <div class="metric-value" style="font-size:19px">${fmtARS(totalPresupuestado)}</div>
@@ -2257,9 +2276,22 @@ function renderSubTabGastoRubro(){
     </div>
     ${addBtnsGasto}
     ${todosRubros.length?`<div style="overflow-x:auto"><table style="font-size:12px"><thead><tr>
-      <th>Rubro</th><th style="text-align:right">Caja Chica</th><th style="text-align:right">Mano de Obra</th><th style="text-align:right">Pagos directos</th><th style="text-align:right">Total gastado</th><th style="text-align:right">Presupuestado</th><th style="text-align:right">Diferencia</th><th></th>
+      <th>Rubro</th><th style="text-align:right">Caja Chica</th><th style="text-align:right">Mano de Obra</th><th style="text-align:right">Pagos directos</th><th style="text-align:right">Total gastado</th><th style="text-align:right">Proyectado</th><th style="text-align:right">Total + Proyectado</th><th style="text-align:right">Presupuestado</th><th style="text-align:right">Diferencia</th><th></th>
     </tr></thead><tbody>${rows}</tbody></table></div>`:'<div class="empty">Sin gastos registrados todavía para esta obra.</div>'}
   </div>`;
+}
+
+function setProyectadoRubro(oid, rubro, val){
+  if(!data.presupuesto_proyectado_rubro)data.presupuesto_proyectado_rubro=[];
+  const monto=parseFloat(val)||0;
+  const idx=data.presupuesto_proyectado_rubro.findIndex(p=>p.obraId===oid&&p.rubro===rubro);
+  if(idx>=0){
+    if(monto===0){data.presupuesto_proyectado_rubro.splice(idx,1);}
+    else{data.presupuesto_proyectado_rubro[idx].monto=monto;}
+  }else if(monto!==0){
+    data.presupuesto_proyectado_rubro.push({obraId:oid,rubro,monto});
+  }
+  save();renderSubTabGastoRubro();
 }
 
 function openModalPresupGasto(oid, rubro){
@@ -2313,27 +2345,37 @@ function imprimirGastoRubro(oid){
     return p?p.monto:0;
   };
 
+  const getProyectado=rubro=>{
+    const p=(data.presupuesto_proyectado_rubro||[]).find(p=>p.obraId===oid&&p.rubro===rubro);
+    return p?p.monto:0;
+  };
+
   const todosRubros=[...new Set([
     ...Object.keys(porRubroCC),
     ...Object.keys(porRubroMO),
     ...Object.keys(porRubroPD),
-    ...(data.presupuesto_gasto_rubro||[]).filter(p=>p.obraId===oid).map(p=>p.rubro)
+    ...(data.presupuesto_gasto_rubro||[]).filter(p=>p.obraId===oid).map(p=>p.rubro),
+    ...(data.presupuesto_proyectado_rubro||[]).filter(p=>p.obraId===oid).map(p=>p.rubro)
   ])].sort();
 
   const totalCCsum=Object.values(porRubroCC).reduce((a,v)=>a+v,0);
   const totalMOsum=Object.values(porRubroMO).reduce((a,v)=>a+v,0);
   const totalPDsum=Object.values(porRubroPD).reduce((a,v)=>a+v,0);
   const totalGeneral=totalCCsum+totalMOsum+totalPDsum;
+  const totalProyectado=todosRubros.reduce((a,r)=>a+getProyectado(r),0);
+  const totalGeneralConProy=totalGeneral+totalProyectado;
   const totalPresupuestado=todosRubros.reduce((a,r)=>a+getPresupGasto(r),0);
-  const totalDiferencia=totalPresupuestado-totalGeneral;
+  const totalDiferencia=totalPresupuestado-totalGeneralConProy;
 
   const rows=todosRubros.map((r,i)=>{
     const cc=porRubroCC[r]||0;
     const mo=porRubroMO[r]||0;
     const pd=porRubroPD[r]||0;
     const tot=cc+mo+pd;
+    const proy=getProyectado(r);
+    const totConProy=tot+proy;
     const presup=getPresupGasto(r);
-    const dif=presup-tot;
+    const dif=presup-totConProy;
     const hayPresup=presup>0;
     return `<tr style="background:${i%2?'#fafafa':'#fff'}">
       <td style="border:1px solid #ddd;padding:6px 10px;font-weight:600">${r}</td>
@@ -2341,6 +2383,8 @@ function imprimirGastoRubro(oid){
       <td style="border:1px solid #ddd;padding:6px 10px;text-align:right">${fmtARS(mo)}</td>
       <td style="border:1px solid #ddd;padding:6px 10px;text-align:right">${fmtARS(pd)}</td>
       <td style="border:1px solid #ddd;padding:6px 10px;text-align:right;font-weight:700">${fmtARS(tot)}</td>
+      <td style="border:1px solid #ddd;padding:6px 10px;text-align:right">${fmtARS(proy)}</td>
+      <td style="border:1px solid #ddd;padding:6px 10px;text-align:right;font-weight:700">${fmtARS(totConProy)}</td>
       <td style="border:1px solid #ddd;padding:6px 10px;text-align:right">${hayPresup?fmtARS(presup):'—'}</td>
       <td style="border:1px solid #ddd;padding:6px 10px;text-align:right;font-weight:600;color:${!hayPresup?'#888':(dif>=0?'#1a7a4a':'#c0392b')}">${hayPresup?(dif>=0?'+':'')+fmtARS(dif):'—'}</td>
     </tr>`;
@@ -2378,6 +2422,10 @@ function imprimirGastoRubro(oid){
       <div style="font-size:11px;color:#888;text-transform:uppercase;letter-spacing:.4px">Gasto total</div>
       <div style="font-size:17px;font-weight:700;margin-top:4px">${fmtARS(totalGeneral)}</div>
     </div>
+    <div style="flex:1;min-width:110px;border:1px solid #d4bdf0;border-radius:8px;padding:12px;background:#f3edfb">
+      <div style="font-size:11px;color:#888;text-transform:uppercase;letter-spacing:.4px">Proyectado</div>
+      <div style="font-size:17px;font-weight:700;margin-top:4px;color:#7a4fb5">${fmtARS(totalProyectado)}</div>
+    </div>
     <div style="flex:1;min-width:110px;border:1px solid ${totalDiferencia>=0?'#a8e0b8':'#f5c6c2'};border-radius:8px;padding:12px;background:${totalDiferencia>=0?'#f0faf3':'#fdf0ef'}">
       <div style="font-size:11px;color:#888;text-transform:uppercase;letter-spacing:.4px">Diferencia vs. presupuestado</div>
       <div style="font-size:17px;font-weight:700;margin-top:4px;color:${totalDiferencia>=0?'#1a7a4a':'#c0392b'}">${totalDiferencia>=0?'+':''}${fmtARS(totalDiferencia)}</div>
@@ -2391,6 +2439,8 @@ function imprimirGastoRubro(oid){
       <th style="border:1px solid #ddd;padding:7px 10px;text-align:right">Mano de Obra</th>
       <th style="border:1px solid #ddd;padding:7px 10px;text-align:right">Pagos directos</th>
       <th style="border:1px solid #ddd;padding:7px 10px;text-align:right">Total gastado</th>
+      <th style="border:1px solid #ddd;padding:7px 10px;text-align:right">Proyectado</th>
+      <th style="border:1px solid #ddd;padding:7px 10px;text-align:right">Total + Proyectado</th>
       <th style="border:1px solid #ddd;padding:7px 10px;text-align:right">Presupuestado</th>
       <th style="border:1px solid #ddd;padding:7px 10px;text-align:right">Diferencia</th>
     </tr></thead><tbody>
@@ -2401,6 +2451,8 @@ function imprimirGastoRubro(oid){
       <td style="border:1px solid #ddd;padding:7px 10px;text-align:right">${fmtARS(totalMOsum)}</td>
       <td style="border:1px solid #ddd;padding:7px 10px;text-align:right">${fmtARS(totalPDsum)}</td>
       <td style="border:1px solid #ddd;padding:7px 10px;text-align:right">${fmtARS(totalGeneral)}</td>
+      <td style="border:1px solid #ddd;padding:7px 10px;text-align:right">${fmtARS(totalProyectado)}</td>
+      <td style="border:1px solid #ddd;padding:7px 10px;text-align:right">${fmtARS(totalGeneralConProy)}</td>
       <td style="border:1px solid #ddd;padding:7px 10px;text-align:right">${fmtARS(totalPresupuestado)}</td>
       <td style="border:1px solid #ddd;padding:7px 10px;text-align:right;color:${totalDiferencia>=0?'#1a7a4a':'#c0392b'}">${totalDiferencia>=0?'+':''}${fmtARS(totalDiferencia)}</td>
     </tr>
@@ -2454,6 +2506,7 @@ function guardarRenombreRubro(oldName){
   data.caja.forEach(m=>{if(m.rubro===oldName)m.rubro=nuevo;});
   (data.presupuesto_rubros||[]).forEach(p=>{if(p.rubro===oldName)p.rubro=nuevo;});
   (data.presupuesto_gasto_rubro||[]).forEach(p=>{if(p.rubro===oldName)p.rubro=nuevo;});
+  (data.presupuesto_proyectado_rubro||[]).forEach(p=>{if(p.rubro===oldName)p.rubro=nuevo;});
   (data.pagos_directos||[]).forEach(p=>{if(p.rubro===oldName)p.rubro=nuevo;});
   save();closeModal();renderCajaDetalle();showToast('✓ Rubro renombrado a "'+nuevo+'"');
 }
@@ -2462,6 +2515,7 @@ function eliminarRubroGlobal(rubro){
   const enUso = data.caja.some(m=>m.rubro===rubro)
     || (data.presupuesto_rubros||[]).some(p=>p.rubro===rubro)
     || (data.presupuesto_gasto_rubro||[]).some(p=>p.rubro===rubro)
+    || (data.presupuesto_proyectado_rubro||[]).some(p=>p.rubro===rubro)
     || (data.pagos_directos||[]).some(p=>p.rubro===rubro);
   const msg = enUso
     ? '"'+rubro+'" tiene movimientos o presupuestos cargados. Se va a quitar de la lista para elegir en nuevos movimientos, pero los registros existentes van a mantener este rubro. ¿Continuar?'
