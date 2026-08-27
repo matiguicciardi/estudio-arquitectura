@@ -747,8 +747,9 @@ function recibidoSocioObra(oid,s){
   return deCaja+deFondos;
 }
 function totalCajaTipo(oid,tipo){
-  const deCaja=data.caja.filter(m=>m.obraId===oid&&m.tipo===tipo).reduce((a,m)=>a+m.monto,0);
+  const deCaja=data.caja.filter(m=>m.obraId===oid&&m.tipo===tipo&&m.tipoGasto!=='proyectado').reduce((a,m)=>a+m.monto,0);
   // fondos del cliente no son gastos — no sumar en caja chica/mano obra
+  // los gastos marcados 'proyectado' tampoco se suman acá: no restan de la plata real
   return deCaja;
 }
 function internosEntregadosPor(s){return data.internos.filter(i=>i.de===s).reduce((a,i)=>a+i.monto,0);}
@@ -757,7 +758,7 @@ function fpBadge(fp){return fp==='Efectivo'?'<span class="fp-ef">💵 Efectivo</
 function socioClass(s){return s===MAT?'socio-mat':'socio-ign';}
 
 function renderDashboard(){
-  const ccT=data.caja.filter(m=>m.tipo==='caja_chica').reduce((a,m)=>a+m.monto,0);
+  const ccT=data.caja.filter(m=>m.tipo==='caja_chica'&&m.tipoGasto!=='proyectado').reduce((a,m)=>a+m.monto,0);
   const moT=data.caja.filter(m=>m.tipo==='mano_obra').reduce((a,m)=>a+m.monto,0);
   const pcCaja=data.caja.filter(m=>m.tipo==='pago_cliente').reduce((a,m)=>a+m.monto,0);
   const pcFondos=(data.fondos||[]).reduce((a,f)=>a+f.monto,0);
@@ -1603,10 +1604,15 @@ function renderSubTabCC(){
   if(!window._ccFiltro) window._ccFiltro='todos';
   const filtroCC=window._ccFiltro;
 
-  // Rubro breakdown (siempre sobre todos los gastos)
+  // Todos los gastos de caja chica de esta obra (reales + proyectados)
   const gastosCC=data.caja.filter(m=>m.obraId===oid&&m.tipo==='caja_chica');
+  const gastosCCReal=gastosCC.filter(m=>m.tipoGasto!=='proyectado');
+  const gastosCCProy=gastosCC.filter(m=>m.tipoGasto==='proyectado');
+  const totalGastoReal=gastosCCReal.reduce((a,m)=>a+m.monto,0);
+  const totalGastoProy=gastosCCProy.reduce((a,m)=>a+m.monto,0);
+  // Rubro breakdown: solo sobre gasto real (el proyectado no es plata gastada todavía)
   const porRubroCC={};
-  gastosCC.forEach(m=>{const r=(m.rubro&&m.rubro!=='Caja chica')?m.rubro:'Sin clasificar';porRubroCC[r]=(porRubroCC[r]||0)+m.monto;});
+  gastosCCReal.forEach(m=>{const r=(m.rubro&&m.rubro!=='Caja chica')?m.rubro:'Sin clasificar';porRubroCC[r]=(porRubroCC[r]||0)+m.monto;});
   const totalCC=Object.values(porRubroCC).reduce((a,v)=>a+v,0);
   const rubrosCC=Object.entries(porRubroCC).sort((a,b)=>b[1]-a[1]);
   const colCC=['#6c3fc5','#1a6ef5','#1a7a4a','#b07d1a','#c0392b','#0d7a6e','#555','#8a6400'];
@@ -1669,13 +1675,14 @@ function renderSubTabCC(){
         </div></td></tr>`;
     } else {
       const r=(m.rubro&&m.rubro!=='Caja chica')?m.rubro:'Sin clasificar';
-      rowsCC+=`<tr>
-        <td>${m.fecha}</td><td><span class="badge badge-amber">− Gasto</span></td>
+      const esProy=m.tipoGasto==='proyectado';
+      rowsCC+=`<tr${esProy?' style="background:#f8f5fd"':''}>
+        <td>${m.fecha}</td><td><span class="badge badge-amber">− Gasto</span>${esProy?' <span class="badge" style="background:#f3effe;color:#6c3fc5"><span style="color:#000">*</span> Proyectado</span>':''}</td>
         <td><strong>${m.item||'—'}</strong>${m.obs?`<br><span style="color:#aaa">${m.obs}</span>`:''}</td>
         <td><span style="background:#f3effe;color:#6c3fc5;padding:2px 7px;border-radius:20px;font-size:11px;font-weight:600">${r}</span></td>
         <td class="${socioClass(m.socio)}" style="font-size:12px">${m.socio===MAT?'Matias':'Ignacio'}</td>
         <td>${fpBadge(m.formaPago)}</td>
-        <td style="font-weight:600;color:#c0392b">${fmtARS(m.monto)}</td>
+        <td style="font-weight:600;color:${esProy?'#6c3fc5':'#c0392b'}">${fmtARS(m.monto)}</td>
         <td><div class="row-actions">
           <button class="btn btn-sm btn-edit" onclick="openModal('ingreso-cc',${oid},${m.id})">Editar</button>
           <button class="btn btn-sm btn-danger" onclick="delCajaMov(${m.id})">Borrar</button>
@@ -1706,18 +1713,29 @@ function renderSubTabCC(){
         <button class="btn btn-sm" style="background:#f5f4f0;border:1px solid #d0cfc8" onclick="imprimirCajaChica(${oid})">🖨 PDF</button>
       </div>
     </div>
-    <div style="display:flex;flex-wrap:wrap;gap:10px;margin-bottom:14px">
-      <div class="metric" style="flex:1;min-width:120px;background:#fff3cd;border:1px solid #f0d898">
-        <div class="metric-label" style="color:#8a6400">Fondos del cliente</div>
+    <div style="display:flex;flex-wrap:wrap;gap:10px;margin-bottom:8px">
+      <div class="metric" style="flex:1;min-width:130px;background:#fff3cd;border:1px solid #f0d898">
+        <div class="metric-label" style="color:#8a6400">Fondos recibidos</div>
         <div class="metric-value gold">${fmtARS(totFCC)}</div>
       </div>
-      <div class="metric" style="flex:1;min-width:120px">
-        <div class="metric-label">Gastado</div>
+      <div class="metric" style="flex:1;min-width:130px">
+        <div class="metric-label">Total gastado</div>
         <div class="metric-value red">${fmtARS(cc)}</div>
       </div>
-      <div class="metric" style="flex:1;min-width:120px;background:${saldoCC>=0?'#f0faf3':'#fdf0ef'};border:2px solid ${saldoCC>=0?'#1a7a4a':'#c0392b'}">
-        <div class="metric-label" style="color:${saldoCC>=0?'#1a7a4a':'#c0392b'}">Saldo</div>
+      <div class="metric" style="flex:1;min-width:130px;background:${saldoCC>=0?'#f0faf3':'#fdf0ef'};border:2px solid ${saldoCC>=0?'#1a7a4a':'#c0392b'}">
+        <div class="metric-label" style="color:${saldoCC>=0?'#1a7a4a':'#c0392b'}">Saldo disponible</div>
         <div class="metric-value ${saldoCC>=0?'green':'red'}" style="font-size:22px">${fmtARS(saldoCC)}</div>
+      </div>
+    </div>
+    <div style="display:flex;flex-wrap:wrap;gap:10px;margin-bottom:14px">
+      <div class="metric" style="flex:1;min-width:130px;background:#f3effe;border:1px solid #d4bdf0">
+        <div class="metric-label" style="color:#6c3fc5"><span style="color:#000">*</span> Total proyectado</div>
+        <div class="metric-value" style="color:#6c3fc5">${fmtARS(totalGastoProy)}</div>
+        <div style="font-size:10px;color:#aaa">No resta del saldo real</div>
+      </div>
+      <div class="metric" style="flex:1;min-width:130px;background:#f5f4f0;border:2px solid #1a1a1a">
+        <div class="metric-label" style="color:#555;font-weight:600">Total (saldo − proyectado)</div>
+        <div class="metric-value" style="font-size:22px;color:${(saldoCC-totalGastoProy)>=0?'#1a7a4a':'#c0392b'}">${fmtARS(saldoCC-totalGastoProy)}</div>
       </div>
     </div>
     ${rubroCardsCC?`<div style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:14px">${rubroCardsCC}</div>`:''}
@@ -2163,7 +2181,7 @@ function renderSubTabGastoRubro(){
   const el=$('caja-detalle'); if(!el||!cajaObraId)return;
   const oid=cajaObraId;
 
-  const gastosCC=data.caja.filter(m=>m.obraId===oid&&m.tipo==='caja_chica');
+  const gastosCC=data.caja.filter(m=>m.obraId===oid&&m.tipo==='caja_chica'&&m.tipoGasto!=='proyectado');
   const porRubroCC={};
   gastosCC.forEach(m=>{const r=(m.rubro&&m.rubro!=='Caja chica')?m.rubro:'Sin clasificar';porRubroCC[r]=(porRubroCC[r]||0)+m.monto;});
 
@@ -2343,7 +2361,7 @@ function imprimirGastoRubro(oid){
   const cliente=getCliente(obra.clienteId);
   const fecha=new Date().toLocaleDateString('es-AR',{day:'2-digit',month:'2-digit',year:'numeric'});
 
-  const gastosCC=data.caja.filter(m=>m.obraId===oid&&m.tipo==='caja_chica');
+  const gastosCC=data.caja.filter(m=>m.obraId===oid&&m.tipo==='caja_chica'&&m.tipoGasto!=='proyectado');
   const porRubroCC={};
   gastosCC.forEach(m=>{const r=(m.rubro&&m.rubro!=='Caja chica')?m.rubro:'Sin clasificar';porRubroCC[r]=(porRubroCC[r]||0)+m.monto;});
 
@@ -2997,6 +3015,14 @@ function openModal(tipo,extra,editId){
           <button type="button" class="btn btn-sm" onclick="agregarRubrosCC()">+ Agregar</button>
         </div>
       </div>
+      <div class="form-row"><label>Tipo de gasto</label>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
+          <button type="button" id="btn-gasto-real" class="btn${(m.tipoGasto||'real')==='real'?' btn-primary':''}" style="padding:10px;font-size:12px${(m.tipoGasto||'real')==='real'?'':';background:#f5f4f0;color:#666;border:1px solid #d0cfc8'}" onclick="setTipoGastoCC('real')">✅ Real</button>
+          <button type="button" id="btn-gasto-proy" class="btn${(m.tipoGasto||'real')==='proyectado'?' btn-primary':''}" style="padding:10px;font-size:12px${(m.tipoGasto||'real')==='proyectado'?';background:#6c3fc5;border-color:#6c3fc5':';background:#f3effe;color:#6c3fc5;border:1px solid #d4bdf0'}" onclick="setTipoGastoCC('proyectado')"><span style="color:#000">*</span> Proyectado</button>
+        </div>
+        <div style="font-size:11px;color:#aaa;margin-top:5px">Proyectado = un gasto futuro estimado, para mostrarle al cliente. No descuenta del saldo real.</div>
+        <input type="hidden" id="f-tipogasto-cc" value="${m.tipoGasto||'real'}">
+      </div>
       <div class="form-row2">
         <div class="form-row"><label>Quién pagó</label><select id="f-socio">${quienOpts}</select></div>
         <div class="form-row"><label>Forma de pago</label><select id="f-fp">
@@ -3636,6 +3662,18 @@ function saveCuota(tid,cid){
 }
 
 // ── FUNCIONES CAJA: INGRESO/GASTO CC ──────────────────────────
+function setTipoGastoCC(val){
+  const hid=$('f-tipogasto-cc'); if(hid)hid.value=val;
+  const bReal=$('btn-gasto-real'), bProy=$('btn-gasto-proy');
+  if(!bReal||!bProy)return;
+  if(val==='real'){
+    bReal.className='btn btn-primary'; bReal.style.cssText='padding:10px;font-size:12px';
+    bProy.className='btn'; bProy.style.cssText='padding:10px;font-size:12px;background:#f3effe;color:#6c3fc5;border:1px solid #d4bdf0';
+  } else {
+    bProy.className='btn btn-primary'; bProy.style.cssText='padding:10px;font-size:12px;background:#6c3fc5;border-color:#6c3fc5';
+    bReal.className='btn'; bReal.style.cssText='padding:10px;font-size:12px;background:#f5f4f0;color:#666;border:1px solid #d0cfc8';
+  }
+}
 function setCCTipo(tipo){
   $('cc-form-ingreso').style.display=tipo==='ingreso'?'block':'none';
   $('cc-form-gasto').style.display=tipo==='gasto'?'block':'none';
@@ -3684,6 +3722,7 @@ function saveGastoCC(oid,eid){
   const monto=parseFloat(($('f-monto')||{}).value)||0;
   if(!monto)return alert('Ingresá el monto');
   const rubroVal=gv('f-rubro-cc')||'Varios';
+  const tipoGastoVal=(($('f-tipogasto-cc')||{}).value)==='proyectado'?'proyectado':'real';
   const obj={obraId:parseInt(oid),tipo:'caja_chica',
     fecha:gv('f-fecha')||today(),
     socio:gv('f-socio')||MAT,
@@ -3691,6 +3730,7 @@ function saveGastoCC(oid,eid){
     rubro:rubroVal,
     obs:gv('f-obs')||'',
     monto,valorDolar:0,
+    tipoGasto:tipoGastoVal,
     formaPago:gv('f-fp')||'Efectivo'};
   if(eid){Object.assign(data.caja.find(x=>x.id===eid),obj);}
   else{data.caja.push({id:data.nextId.caja++,...obj});}
@@ -3890,11 +3930,17 @@ function imprimirCajaChica(oid){
   const obra=getObra(oid);
   const cliente=getCliente(obra.clienteId);
   const fondosCC=(data.fondos||[]).filter(f=>f.obraId===oid&&f.tipo==='caja_chica');
-  const gastos=data.caja.filter(m=>m.obraId===oid&&m.tipo==='caja_chica').sort((a,b)=>a.fecha.localeCompare(b.fecha));
+  const gastosAll=data.caja.filter(m=>m.obraId===oid&&m.tipo==='caja_chica').sort((a,b)=>a.fecha.localeCompare(b.fecha));
+  const gastosReal=gastosAll.filter(m=>m.tipoGasto!=='proyectado');
+  const gastosProy=gastosAll.filter(m=>m.tipoGasto==='proyectado');
   const totFCC=fondosCC.reduce((a,f)=>a+f.monto,0);
-  const totGasto=gastos.reduce((a,m)=>a+m.monto,0);
-  const saldo=totFCC-totGasto;
+  const totGastoReal=gastosReal.reduce((a,m)=>a+m.monto,0);
+  const totGastoProy=gastosProy.reduce((a,m)=>a+m.monto,0);
+  const totGastoGeneral=totGastoReal+totGastoProy;
+  const saldo=totFCC-totGastoReal;
+  const totalConProyeccion=saldo-totGastoProy;
   const fecha=new Date().toLocaleDateString('es-AR',{day:'2-digit',month:'2-digit',year:'numeric'});
+  const rubroOf=m=>(m.rubro&&m.rubro!=='Caja chica')?m.rubro:'Sin clasificar';
 
   const html=`
   <div class="print-header" style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:20px;padding-bottom:12px;border-bottom:2px solid #1a1a1a">
@@ -3911,20 +3957,32 @@ function imprimirCajaChica(oid){
     <div style="font-size:16px;font-weight:700">${obra.nombre}</div>
     <div style="font-size:13px;color:#888">Cliente: ${cliente.nombre}</div>
   </div>
-  <div style="display:flex;gap:16px;margin-bottom:20px;flex-wrap:wrap">
-    <div style="flex:1;min-width:120px;border:1px solid #ddd;border-radius:8px;padding:12px">
+  <div style="display:flex;gap:16px;margin-bottom:12px;flex-wrap:wrap">
+    <div style="flex:1;min-width:150px;border:1px solid #ddd;border-radius:8px;padding:12px">
       <div style="font-size:11px;color:#888;text-transform:uppercase;letter-spacing:.4px">Fondos recibidos</div>
       <div style="font-size:20px;font-weight:700;color:#1a7a4a;margin-top:4px">${fmtARS(totFCC)}</div>
     </div>
-    <div style="flex:1;min-width:120px;border:1px solid #ddd;border-radius:8px;padding:12px">
+    <div style="flex:1;min-width:150px;border:1px solid #ddd;border-radius:8px;padding:12px">
       <div style="font-size:11px;color:#888;text-transform:uppercase;letter-spacing:.4px">Total gastado</div>
-      <div style="font-size:20px;font-weight:700;color:#c0392b;margin-top:4px">${fmtARS(totGasto)}</div>
+      <div style="font-size:20px;font-weight:700;color:#c0392b;margin-top:4px">${fmtARS(totGastoReal)}</div>
     </div>
-    <div style="flex:1;min-width:120px;border:1px solid ${saldo>=0?'#a8e0b8':'#f5c6c2'};border-radius:8px;padding:12px;background:${saldo>=0?'#f0faf3':'#fdf0ef'}">
+    <div style="flex:1;min-width:150px;border:1px solid ${saldo>=0?'#a8e0b8':'#f5c6c2'};border-radius:8px;padding:12px;background:${saldo>=0?'#f0faf3':'#fdf0ef'}">
       <div style="font-size:11px;color:#888;text-transform:uppercase;letter-spacing:.4px">Saldo disponible</div>
       <div style="font-size:20px;font-weight:700;color:${saldo>=0?'#1a7a4a':'#c0392b'};margin-top:4px">${fmtARS(saldo)}</div>
     </div>
   </div>
+  <div style="display:flex;gap:16px;margin-bottom:8px;flex-wrap:wrap">
+    <div style="flex:1;min-width:150px;border:1px solid #d4bdf0;border-radius:8px;padding:12px;background:#f3effe">
+      <div style="font-size:11px;color:#6c3fc5;text-transform:uppercase;letter-spacing:.4px"><span style="color:#000">*</span> Total proyectado</div>
+      <div style="font-size:20px;font-weight:700;color:#6c3fc5;margin-top:4px">${fmtARS(totGastoProy)}</div>
+      <div style="font-size:9px;color:#a898c9;margin-top:2px">No descuenta del saldo real</div>
+    </div>
+    <div style="flex:1;min-width:150px;border:2px solid #1a1a1a;border-radius:8px;padding:12px;background:#f5f4f0">
+      <div style="font-size:11px;color:#555;text-transform:uppercase;letter-spacing:.4px;font-weight:600">Total (saldo − proyectado)</div>
+      <div style="font-size:22px;font-weight:700;color:${totalConProyeccion>=0?'#1a7a4a':'#c0392b'};margin-top:4px">${fmtARS(totalConProyeccion)}</div>
+    </div>
+  </div>
+  ${gastosProy.length?`<div style="font-size:10px;color:#6c3fc5;margin-bottom:16px"><span style="color:#000">*</span> El gasto proyectado es una estimación a futuro para que el cliente vea la proyección de caja. No se descuenta del saldo disponible real; el recuadro "Total" combina ambos solo a modo informativo.</div>`:''}
   ${fondosCC.length?`
   <div style="font-size:13px;font-weight:700;margin-bottom:8px;color:#8a6400">Fondos del cliente</div>
   <table style="width:100%;border-collapse:collapse;margin-bottom:20px;font-size:12px">
@@ -3942,29 +4000,43 @@ function imprimirCajaChica(oid){
     </tr>`).join('')}
     </tbody>
   </table>`:''}
-  ${gastos.length?`
+  ${gastosAll.length?`
   <div style="font-size:13px;font-weight:700;margin-bottom:8px;color:#c0392b">Detalle de gastos</div>
   <table style="width:100%;border-collapse:collapse;font-size:12px">
     <thead><tr style="background:#f5f5f5">
       <th style="border:1px solid #ddd;padding:7px 10px;text-align:left">Fecha</th>
       <th style="border:1px solid #ddd;padding:7px 10px;text-align:left">Proveedor</th>
+      <th style="border:1px solid #ddd;padding:7px 10px;text-align:left">Rubro</th>
       <th style="border:1px solid #ddd;padding:7px 10px;text-align:left">Observación</th>
       <th style="border:1px solid #ddd;padding:7px 10px;text-align:left">Pagó</th>
       <th style="border:1px solid #ddd;padding:7px 10px;text-align:left">F. pago</th>
       <th style="border:1px solid #ddd;padding:7px 10px;text-align:right">Monto</th>
     </tr></thead><tbody>
-    ${gastos.map((m,i)=>`<tr style="background:${i%2?'#fafafa':'#fff'}">
+    ${gastosAll.map((m,i)=>{
+      const esProy=m.tipoGasto==='proyectado';
+      const rubro=rubroOf(m);
+      return `<tr style="background:${esProy?'#f8f5fd':(i%2?'#fafafa':'#fff')}">
       <td style="border:1px solid #ddd;padding:6px 10px">${m.fecha}</td>
-      <td style="border:1px solid #ddd;padding:6px 10px;font-weight:500">${m.item||'—'}</td>
+      <td style="border:1px solid #ddd;padding:6px 10px;font-weight:500">${m.item||'—'}${esProy?' <span style="font-size:9px;color:#6c3fc5;font-weight:700"><span style="color:#000">*</span> PROYECTADO</span>':''}</td>
+      <td style="border:1px solid #ddd;padding:6px 10px"><span style="background:#f3effe;color:#6c3fc5;padding:2px 7px;border-radius:10px;font-size:10px;font-weight:600">${rubro}</span></td>
       <td style="border:1px solid #ddd;padding:6px 10px;color:#888">${m.obs||'—'}</td>
       <td style="border:1px solid #ddd;padding:6px 10px">${m.socio===MAT?'Matias':'Ignacio'}</td>
       <td style="border:1px solid #ddd;padding:6px 10px">${m.formaPago||'—'}</td>
-      <td style="border:1px solid #ddd;padding:6px 10px;text-align:right;font-weight:600;color:#c0392b">${fmtARS(m.monto)}</td>
-    </tr>`).join('')}
+      <td style="border:1px solid #ddd;padding:6px 10px;text-align:right;font-weight:600;color:${esProy?'#6c3fc5':'#c0392b'}">${fmtARS(m.monto)}</td>
+    </tr>`;
+    }).join('')}
     <tr style="background:#f5f5f5;font-weight:700">
-      <td colspan="5" style="border:1px solid #ddd;padding:7px 10px;text-align:right">TOTAL GASTADO</td>
-      <td style="border:1px solid #ddd;padding:7px 10px;text-align:right;color:#c0392b">${fmtARS(totGasto)}</td>
+      <td colspan="6" style="border:1px solid #ddd;padding:7px 10px;text-align:right">TOTAL GASTO REAL</td>
+      <td style="border:1px solid #ddd;padding:7px 10px;text-align:right;color:#c0392b">${fmtARS(totGastoReal)}</td>
     </tr>
+    ${totGastoProy?`<tr style="background:#f3effe;font-weight:700">
+      <td colspan="6" style="border:1px solid #ddd;padding:7px 10px;text-align:right;color:#6c3fc5">TOTAL GASTO PROYECTADO <span style="color:#000">*</span></td>
+      <td style="border:1px solid #ddd;padding:7px 10px;text-align:right;color:#6c3fc5">${fmtARS(totGastoProy)}</td>
+    </tr>
+    <tr style="background:#f5f4f0;font-weight:700">
+      <td colspan="6" style="border:1px solid #ddd;padding:7px 10px;text-align:right">TOTAL GENERAL (real + proyectado)</td>
+      <td style="border:1px solid #ddd;padding:7px 10px;text-align:right">${fmtARS(totGastoGeneral)}</td>
+    </tr>`:''}
     </tbody>
   </table>`:''}
   <div style="margin-top:24px;padding-top:12px;border-top:1px solid #ddd;font-size:11px;color:#aaa;text-align:center">
