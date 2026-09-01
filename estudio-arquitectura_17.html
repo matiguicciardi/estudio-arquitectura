@@ -135,6 +135,7 @@ hr.sep{border:none;border-top:1px solid #f0efe8;margin:14px 0}
   th{background:#f5f5f5;font-weight:600}
   .metric{border:1px solid #ddd!important;background:#fff!important}
   .badge{border:1px solid #ccc!important;background:#f5f5f5!important;color:#333!important;padding:1px 5px!important}
+  *{-webkit-print-color-adjust:exact!important;print-color-adjust:exact!important;color-adjust:exact!important}
   @page{margin:18mm 14mm;size:A4}
 }
 #print-area{display:none}
@@ -2526,18 +2527,20 @@ function ganttBuildTimeline(oid,opts){
   const printMode=!!opts.printMode;
   const {tareas,hoy,rangeStart,totalDays}=ganttComputeRange(oid);
   const dayW=printMode
-    ?(totalDays>120?7:(totalDays>75?9:(totalDays>45?12:16)))
+    ?(totalDays>270?11:(totalDays>150?16:(totalDays>75?22:(totalDays>30?28:36))))
     :(totalDays>120?14:(totalDays>75?18:(totalDays>45?24:32)));
-  const infoW=printMode?170:320;
+  const infoW=printMode?210:320;
+  const rowH=printMode?26:32;
 
   let monthBands='',dayCells='';
   let cur=rangeStart,curMonthKey=null,curMonthStart=0,curMonthDays=0,monthHtml='';
   for(let i=0;i<totalDays;i++){
     const d=gParseDate(cur);
     const mk=d.getUTCFullYear()+'-'+d.getUTCMonth();
+    const isMonthStart=d.getUTCDate()===1;
     if(mk!==curMonthKey){
       if(curMonthKey!==null){
-        monthBands+=`<div style="position:absolute;left:${curMonthStart*dayW}px;width:${curMonthDays*dayW}px;top:0;height:100%;display:flex;align-items:center;justify-content:center;font-size:${printMode?10:11}px;font-weight:700;color:#666;border-right:1px solid #d8d6cd;box-sizing:border-box;background:#f0efe8">${monthHtml}</div>`;
+        monthBands+=`<div style="position:absolute;left:${curMonthStart*dayW}px;width:${curMonthDays*dayW}px;top:0;height:100%;display:flex;align-items:center;justify-content:center;font-size:${printMode?13:11}px;font-weight:700;color:#555;border-right:2px solid #b7b4a8;box-sizing:border-box;background:#f0efe8">${monthHtml}</div>`;
       }
       curMonthKey=mk;curMonthStart=i;curMonthDays=0;
       monthHtml=GANTT_MESES[d.getUTCMonth()]+' '+d.getUTCFullYear();
@@ -2545,13 +2548,31 @@ function ganttBuildTimeline(oid,opts){
     curMonthDays++;
     const dw=d.getUTCDay();
     const isWeekend=dw===0||dw===6;
-    dayCells+=`<div style="position:absolute;left:${i*dayW}px;width:${dayW}px;top:0;height:100%;${isWeekend?'background:#f5f4f0;':''}border-right:1px solid #ece9e2;box-sizing:border-box;display:flex;align-items:flex-end;justify-content:center;font-size:8px;color:#bbb;padding-bottom:1px">${dayW>=14?d.getUTCDate():''}</div>`;
+    const dayBorder=isMonthStart?'2px solid #b7b4a8':(dw===1?'1px solid #d3d1c8':'1px solid #ece9e2');
+    dayCells+=`<div style="position:absolute;left:${i*dayW}px;width:${dayW}px;top:0;height:100%;${isWeekend?'background:#f5f4f0;':''}border-right:${dayBorder};box-sizing:border-box;display:flex;align-items:flex-end;justify-content:center;font-size:${printMode?10:8}px;color:#999;padding-bottom:1px">${dayW>=14?d.getUTCDate():''}</div>`;
     cur=gAddDays(cur,1);
   }
-  monthBands+=`<div style="position:absolute;left:${curMonthStart*dayW}px;width:${curMonthDays*dayW}px;top:0;height:100%;display:flex;align-items:center;justify-content:center;font-size:${printMode?10:11}px;font-weight:700;color:#666;border-right:1px solid #d8d6cd;box-sizing:border-box;background:#f0efe8">${monthHtml}</div>`;
+  monthBands+=`<div style="position:absolute;left:${curMonthStart*dayW}px;width:${curMonthDays*dayW}px;top:0;height:100%;display:flex;align-items:center;justify-content:center;font-size:${printMode?13:11}px;font-weight:700;color:#555;border-right:2px solid #b7b4a8;box-sizing:border-box;background:#f0efe8">${monthHtml}</div>`;
 
   const todayOffset=gDiffDays(rangeStart,hoy);
-  const todayLine=(todayOffset>=0&&todayOffset<totalDays)?`<div style="position:absolute;left:${todayOffset*dayW}px;top:0;bottom:0;width:2px;background:#c0392b;z-index:3;pointer-events:none"></div>`:'';
+  // Nota: esta línea vive en el wrapper EXTERIOR de las filas (que arranca en x=0, al
+  // inicio de la columna de Rubro/Tarea), no en el track de cada fila (que arranca recién
+  // después de infoW px) — por eso hay que sumar infoW para que caiga sobre el día correcto.
+  const todayLine=(todayOffset>=0&&todayOffset<totalDays)?`<div style="position:absolute;left:${infoW+todayOffset*dayW}px;top:0;bottom:0;width:2px;background:#c0392b;z-index:3;pointer-events:none"></div>`:'';
+
+  // Cuadriculado detrás de las barras: un patrón de fondo CSS (fin de semana + línea por día),
+  // aplicado directamente sobre el mismo contenedor de cada fila donde se dibujan las barras,
+  // así queda siempre perfectamente alineado con el inicio/fin de cada tarea.
+  const rsDow=gParseDate(rangeStart).getUTCDay();
+  let gridStops=[];
+  for(let k=0;k<7;k++){
+    const dow=(rsDow+k)%7;
+    const isWknd=dow===0||dow===6;
+    const x0=k*dayW,x1=(k+1)*dayW;
+    const fill=isWknd?'#f0eee2':'#ffffff';
+    gridStops.push(`${fill} ${x0}px`,`${fill} ${x1-1}px`,'#d6d2c4 '+(x1-1)+'px','#d6d2c4 '+x1+'px');
+  }
+  const gridCss=`background-image:repeating-linear-gradient(to right,${gridStops.join(',')});`;
 
   const trackWidth=totalDays*dayW;
   const stickyCss=printMode?'':'position:sticky;left:0;z-index:2;';
@@ -2563,30 +2584,30 @@ function ganttBuildTimeline(oid,opts){
     const avance=Math.max(0,Math.min(100,t.avance||0));
     const dragAttrs=printMode?'':`onpointerdown="ganttStartDrag(event,${t.id},'move')" ondblclick="openModalGanttTask(${oid},${t.id})"`;
     const handles=printMode?'':`<div style="position:absolute;left:0;top:0;bottom:0;width:8px;cursor:ew-resize" onpointerdown="ganttStartDrag(event,${t.id},'resize-left')"></div><div style="position:absolute;right:0;top:0;bottom:0;width:8px;cursor:ew-resize" onpointerdown="ganttStartDrag(event,${t.id},'resize-right')"></div>`;
-    return `<div style="display:flex;border-bottom:1px solid #f0efe8">
-      <div style="${stickyCss}background:#fff;width:${infoW}px;min-width:${infoW}px;padding:${printMode?'5px 8px':'8px 12px'};border-right:1px solid #e0dfd8;box-sizing:border-box">
+    return `<div style="display:flex;border-bottom:1px solid #e4e2d9;min-height:${rowH}px">
+      <div style="${stickyCss}background:#fff;width:${infoW}px;min-width:${infoW}px;padding:${printMode?'6px 10px':'8px 12px'};border-right:1px solid #e0dfd8;box-sizing:border-box">
         <div style="display:flex;align-items:center;gap:6px;margin-bottom:2px">
           <span style="width:7px;height:7px;border-radius:50%;background:${color};flex:none"></span>
-          <span style="font-size:${printMode?9:10}px;color:#999">${t.rubro||'—'}</span>
+          <span style="font-size:${printMode?10:10}px;color:#999">${t.rubro||'—'}</span>
         </div>
-        <div style="font-size:${printMode?11:12}px;font-weight:600;color:#1a1a1a;margin-bottom:3px">${t.tarea}</div>
+        <div style="font-size:${printMode?12:12}px;font-weight:600;color:#1a1a1a;margin-bottom:3px">${t.tarea}</div>
         <div style="display:flex;align-items:center;gap:6px;font-size:${printMode?10:11}px;color:#888">
           <span id="gantt-lbl2-${t.id}">${gFmtShort(t.inicio)} → ${gFmtShort(t.fin)}</span>
           <span style="margin-left:auto">${avance}%</span>
           ${printMode?'':`<button class="btn btn-sm btn-edit" style="padding:2px 6px;font-size:10px" onclick="openModalGanttTask(${oid},${t.id})">✏</button>`}
         </div>
       </div>
-      <div style="position:relative;width:${trackWidth}px;min-width:${trackWidth}px">
-        <div class="gantt-bar" id="gantt-bar-${t.id}" style="position:absolute;top:${printMode?4:8}px;left:${left}px;width:${width}px;height:${printMode?14:22}px;border-radius:5px;background:${color};${printMode?'':'cursor:grab;'}display:flex;align-items:center;overflow:hidden" ${dragAttrs} title="${t.tarea}: ${t.inicio} → ${t.fin}">
+      <div style="position:relative;width:${trackWidth}px;min-width:${trackWidth}px;${gridCss}">
+        <div class="gantt-bar" id="gantt-bar-${t.id}" style="position:absolute;top:${printMode?6:8}px;left:${left}px;width:${width}px;height:${printMode?18:22}px;border-radius:5px;background:${color};border:${printMode?'1px solid rgba(0,0,0,.25)':'none'};${printMode?'':'cursor:grab;'}display:flex;align-items:center;overflow:hidden" ${dragAttrs} title="${t.tarea}: ${t.inicio} → ${t.fin}">
           ${avance>0?`<div style="position:absolute;left:0;top:0;bottom:0;width:${avance}%;background:rgba(0,0,0,0.18);pointer-events:none"></div>`:''}
-          <span id="gantt-lbl-${t.id}" style="position:relative;font-size:${printMode?9:11}px;color:#fff;font-weight:600;padding:0 6px;white-space:nowrap;pointer-events:none;overflow:hidden;text-overflow:ellipsis">${t.tarea}</span>
+          <span id="gantt-lbl-${t.id}" style="position:relative;font-size:${printMode?10:11}px;color:#fff;font-weight:600;padding:0 6px;white-space:nowrap;pointer-events:none;overflow:hidden;text-overflow:ellipsis">${t.tarea}</span>
           ${handles}
         </div>
       </div>
     </div>`;
   }).join('');
 
-  return {tareas,dayW,infoW,trackWidth,monthBands,dayCells,rows,todayLine,rangeStart};
+  return {tareas,dayW,infoW,trackWidth,monthBands,dayCells,rows,todayLine,rangeStart,rowH};
 }
 
 function renderSubTabGantt(){
@@ -2598,10 +2619,10 @@ function renderSubTabGantt(){
   <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;margin-bottom:12px">
     <div>
       <div style="font-size:13px;font-weight:700;color:#2f6f8f">📅 Cronograma de obra (Gantt)</div>
-      <div style="font-size:11px;color:#aaa;margin-top:2px">Arrastrá el centro de una tarea para moverla, o los bordes para estirar el inicio/fin. Doble clic o ✏ para editar.</div>
+      <div style="font-size:11px;color:#aaa;margin-top:2px">Arrastrá el centro de una tarea para moverla, o los bordes para estirar el inicio/fin. Doble clic o ✏ para editar. El cuadriculado marca cada día (franja gris = fin de semana).</div>
     </div>
     <div class="row-actions">
-      <button class="btn btn-sm" style="background:#f5f4f0;border:1px solid #d0cfc8" onclick="imprimirGantt(${oid})">🖨 PDF</button>
+      <button class="btn btn-sm" style="background:#f5f4f0;border:1px solid #d0cfc8" onclick="imprimirGantt(${oid})">🖨 Imprimir (hoja A1)</button>
       <button class="btn btn-sm btn-primary" onclick="openModalGanttTask(${oid})">+ Nueva tarea</button>
     </div>
   </div>
@@ -2787,31 +2808,44 @@ function imprimirGantt(oid){
     <div style="font-size:13px;color:#888">Cliente: ${cliente.nombre}</div>
   </div>
   ${tl.tareas.length?`
-  <div style="border:1px solid #ccc;border-radius:4px;overflow:hidden">
-    <div style="display:flex;border-bottom:1px solid #ccc;background:#f0efe8">
-      <div style="width:${tl.infoW}px;min-width:${tl.infoW}px;border-right:1px solid #ccc;padding:6px 8px;font-size:10px;font-weight:700;color:#666;text-transform:uppercase">Rubro / Tarea</div>
-      <div style="position:relative;width:${tl.trackWidth}px;min-width:${tl.trackWidth}px;height:22px">${tl.monthBands}</div>
+  <div style="border:1px solid #999;border-radius:4px;overflow:hidden">
+    <div style="display:flex;border-bottom:1px solid #999;background:#f0efe8">
+      <div style="width:${tl.infoW}px;min-width:${tl.infoW}px;border-right:1px solid #999;padding:8px 10px;font-size:12px;font-weight:700;color:#555;text-transform:uppercase">Rubro / Tarea</div>
+      <div style="position:relative;width:${tl.trackWidth}px;min-width:${tl.trackWidth}px;height:28px">${tl.monthBands}</div>
     </div>
-    <div style="display:flex;border-bottom:1px solid #ccc">
-      <div style="width:${tl.infoW}px;min-width:${tl.infoW}px;border-right:1px solid #ccc"></div>
-      <div style="position:relative;width:${tl.trackWidth}px;min-width:${tl.trackWidth}px;height:14px">${tl.dayCells}</div>
+    <div style="display:flex;border-bottom:1px solid #999">
+      <div style="width:${tl.infoW}px;min-width:${tl.infoW}px;border-right:1px solid #999"></div>
+      <div style="position:relative;width:${tl.trackWidth}px;min-width:${tl.trackWidth}px;height:20px">${tl.dayCells}</div>
     </div>
     <div style="position:relative">
       ${tl.todayLine}
       ${tl.rows}
     </div>
+  </div>
+  <div style="margin-top:10px;display:flex;gap:16px;align-items:center;font-size:10px;color:#888">
+    <span style="display:inline-flex;align-items:center;gap:5px"><span style="width:16px;height:2px;background:#c0392b;display:inline-block"></span>Hoy</span>
+    <span style="display:inline-flex;align-items:center;gap:5px"><span style="width:12px;height:12px;background:#f7f6f0;border:1px solid #dedbd0;display:inline-block"></span>Fin de semana</span>
+    <span>Cada línea vertical = 1 día · Cada columna sombreada del encabezado = 1 mes completo</span>
   </div>`:'<div style="text-align:center;color:#888;padding:20px">Sin tareas cargadas en el cronograma de esta obra.</div>'}
   <div style="margin-top:24px;padding-top:12px;border-top:1px solid #ddd;font-size:11px;color:#aaa;text-align:center">
     Documento generado el ${fecha} · Estudio de Arquitectura
   </div>`;
 
+  // Nota: el tamaño "A1" como palabra clave de CSS no existe (los navegadores sólo
+  // reconocen A3/A4/A5), por eso se especifica en milímetros: 841 x 594 mm = A1 apaisado.
+  const pageStyle=document.createElement('style');
+  pageStyle.id='gantt-page-style';
+  pageStyle.textContent='@media print{ @page{size:841mm 594mm;margin:12mm} }';
+  document.head.appendChild(pageStyle);
+
   $('print-area').innerHTML=html;
   document.querySelectorAll('.topbar,.nav,.main').forEach(el=>el.style.display='none');
   $('print-area').style.display='block';
-  $('print-area').style.padding='20px';
+  $('print-area').style.padding='24px';
   window.print();
   document.querySelectorAll('.topbar,.nav,.main').forEach(el=>el.style.display='');
   $('print-area').style.display='none';
+  pageStyle.remove();
 }
 
 function agregarRubroGlobal(){
