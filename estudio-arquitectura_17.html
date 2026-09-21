@@ -2205,6 +2205,7 @@ function renderSubTabGastoRubro(){
   };
 
   const todosRubros=[...new Set([
+    ...getRubrosTodos(), // rubros de "Gestionar rubros": aparecen siempre, aunque todavía no tengan gastos (para poder proyectar)
     ...Object.keys(porRubroCC),
     ...Object.keys(porRubroMO),
     ...Object.keys(porRubroPD),
