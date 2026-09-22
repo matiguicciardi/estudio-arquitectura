@@ -216,6 +216,113 @@ const SOCIOS=[MAT,IGN];
 const RUBROS_MO=['Albañilería','Plomería','Electricista','Durlock','Movimiento de suelo','Pintura','Colocación','Calefacción','Aire acondicionado','Carpintería','Herrería','Yesería'];
 const RUBROS_CC=['Ferretería','Materiales','Seguros','Cartel de obra','Supermercado','Volquete','Geotextil','Cálculo estructural','Otro'];
 const RUBROS_CC_DEFAULT=['Materiales eléctricos','Materiales sanitarios','Materiales de corralón','Ferretería','Volquetes','Varios'];
+// Orden de referencia para "Gasto real por rubro": los rubros que coinciden con este listado
+// (sin importar mayúsculas/minúsculas, acentos, o pequeños errores de ortografía) se muestran
+// numerados en este orden. Los que no están en esta lista (rubros propios que agregaste en
+// "Gestionar rubros" y no se parecen a ninguno) quedan al final, alfabético.
+const ORDEN_RUBROS_GASTO=['Albañilería','Instalación Sanitaria y Gas','Instalación Eléctrica','Instalación Aire Acondicionado','Pintura','Techos','Cielorrasos','Pisos y Revestimientos','Aberturas Interiores','Aberturas Exteriores','Herrería','Artefactos Sanitarios','Griferías','Vidrios','Muebles de Cocina','Carpintería','Mesadas','Otros'];
+// Rubros propios (tal cual los tenés en "Gestionar rubros") que equivalen a un nombre DISTINTO
+// de la lista de arriba (no es un error de tipeo, es otra palabra). Ej: tu rubro "Materiales
+// eléctricos" ocupa el lugar de "Instalación Eléctrica". Los errores de tipeo/acentos no hace
+// falta anotarlos acá: se detectan solos.
+const ALIAS_RUBROS_GASTO={
+  'materiales electricos':'Instalación Eléctrica',
+  'aire acondicionado':'Instalación Aire Acondicionado',
+  'artefactos sanitarios':'Griferías',
+  'techo de chapa':'Techos',
+  'pintiura':'Pintura'
+};
+function normalizarRubro(s){
+  return String(s).toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g,'').replace(/[^a-z0-9\s]/g,'').replace(/\s+/g,' ').trim();
+}
+function distanciaEdicion(a,b){
+  const m=a.length,n=b.length;
+  if(!m)return n; if(!n)return m;
+  const dp=[Array.from({length:n+1},(_,j)=>j)];
+  for(let i=1;i<=m;i++){
+    dp.push([i]);
+    for(let j=1;j<=n;j++){
+      dp[i][j]=a[i-1]===b[j-1]?dp[i-1][j-1]:1+Math.min(dp[i-1][j],dp[i][j-1],dp[i-1][j-1]);
+    }
+  }
+  return dp[m][n];
+}
+const ORDEN_RUBROS_GASTO_NORM=ORDEN_RUBROS_GASTO.map(normalizarRubro);
+const ALIAS_RUBROS_GASTO_NORM={};
+Object.keys(ALIAS_RUBROS_GASTO).forEach(k=>{ALIAS_RUBROS_GASTO_NORM[normalizarRubro(k)]=ALIAS_RUBROS_GASTO[k];});
+function ordenarRubrosPrioridad(rubros){
+  const idx=r=>{
+    const norm=normalizarRubro(r);
+    // 1. Alias explícito (nombre distinto, no error de tipeo)
+    if(ALIAS_RUBROS_GASTO_NORM[norm]){
+      const i=ORDEN_RUBROS_GASTO_NORM.indexOf(normalizarRubro(ALIAS_RUBROS_GASTO_NORM[norm]));
+      if(i>=0)return i;
+    }
+    // 2. Coincidencia exacta (sin acentos ni mayúsculas)
+    const iExacto=ORDEN_RUBROS_GASTO_NORM.indexOf(norm);
+    if(iExacto>=0)return iExacto;
+    // 3. Coincidencia difusa: tolera errores de ortografía (distancia de edición chica)
+    let mejor=-1, mejorDist=Infinity;
+    ORDEN_RUBROS_GASTO_NORM.forEach((cand,i)=>{
+      const d=distanciaEdicion(norm,cand);
+      const umbral=Math.max(2,Math.round(cand.length*0.25));
+      if(d<=umbral&&d<mejorDist){mejorDist=d;mejor=i;}
+    });
+    return mejor>=0?mejor:ORDEN_RUBROS_GASTO.length;
+  };
+  return [...rubros].sort((a,b)=>{
+    const ia=idx(a), ib=idx(b);
+    if(ia!==ib)return ia-ib;
+    return String(a).localeCompare(String(b),'es');
+  });
+}
+// ── Orden MANUAL de "Gasto real por rubro" (flechas ▲▼) ────────
+// data.ordenRubrosGasto guarda el orden que el usuario eligió a mano. Arranca sugerido por
+// ordenarRubrosPrioridad() y de ahí en más manda el orden manual, no el automático.
+function getOrdenRubrosGasto(){
+  if(!data.ordenRubrosGasto)data.ordenRubrosGasto=[];
+  const faltantes=getRubrosTodos().filter(r=>!data.ordenRubrosGasto.includes(r));
+  if(faltantes.length)data.ordenRubrosGasto.push(...ordenarRubrosPrioridad(faltantes));
+  return data.ordenRubrosGasto;
+}
+function ordenarRubrosManual(rubros){
+  const orden=getOrdenRubrosGasto();
+  const idx=r=>{const i=orden.indexOf(r);return i<0?orden.length:i;};
+  return [...rubros].sort((a,b)=>{
+    const ia=idx(a), ib=idx(b);
+    if(ia!==ib)return ia-ib;
+    return String(a).localeCompare(String(b),'es');
+  });
+}
+// Rubros "fijados": una vez que quedaron en la posición correcta, se pueden bloquear para que
+// ni sus propias flechas ni las de un rubro vecino los puedan mover.
+function esRubroFijado(rubro){
+  return !!(data.rubrosFijados&&data.rubrosFijados.includes(rubro));
+}
+function toggleFijarRubro(rubro){
+  if(!data.rubrosFijados)data.rubrosFijados=[];
+  if(esRubroFijado(rubro)){
+    data.rubrosFijados=data.rubrosFijados.filter(r=>r!==rubro);
+    showToast('🔓 "'+rubro+'" ya se puede volver a mover');
+  }else{
+    data.rubrosFijados.push(rubro);
+    showToast('📌 "'+rubro+'" quedó fijado en su posición');
+  }
+  save();renderSubTabGastoRubro();
+}
+function moverRubroGasto(rubro,dir){
+  if(esRubroFijado(rubro))return showToast('Este rubro está fijado. Desfijalo para moverlo.');
+  const orden=getOrdenRubrosGasto();
+  let i=orden.indexOf(rubro);
+  if(i<0){orden.push(rubro);i=orden.length-1;}
+  // Salta por encima de los rubros fijados que encuentre en el camino: esos no se mueven de su
+  // lugar, pero no bloquean a los demás para acomodarse de un lado o del otro.
+  let j=i+dir;
+  while(j>=0&&j<orden.length&&esRubroFijado(orden[j]))j+=dir;
+  if(j<0||j>=orden.length)return;
+  [orden[i],orden[j]]=[orden[j],orden[i]];
+  save();renderSubTabGastoRubro();
+}
 const FPS=['Efectivo','Transferencia','Cheque'];
 const GANTT_MESES=['Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre'];
 const GANTT_PALETTE=['#1a6ef5','#1a7a4a','#b3541e','#6c3fc5','#0d7a6e','#8a6400','#c0392b','#2f6f8f','#a8325c','#4f7d1f','#7d5a3c','#555f7a'];
@@ -677,6 +784,15 @@ function fixData(){
     data.rubrosTodos=[...seed];
     data._rubrosMigrados=true;
   }
+  // Orden manual de "Gasto real por rubro": arranca con una posición sugerida (calcada del PDF de
+  // referencia) y a partir de ahí el usuario la puede mover con las flechas ▲▼. Los rubros nuevos
+  // que todavía no tienen posición se agregan al final, en ese mismo orden sugerido.
+  if(!data.ordenRubrosGasto)data.ordenRubrosGasto=[];
+  {
+    const faltantesOrden=getRubrosTodos().filter(r=>!data.ordenRubrosGasto.includes(r));
+    if(faltantesOrden.length)data.ordenRubrosGasto.push(...ordenarRubrosPrioridad(faltantesOrden));
+  }
+  if(!data.rubrosFijados)data.rubrosFijados=[];
   if(!data.tipoCambio)data.tipoCambio=1420;
   if(!data.nextId.interno)data.nextId.interno=1;
   if(!data.nextId.tablaHon)data.nextId.tablaHon=1;
@@ -2204,14 +2320,14 @@ function renderSubTabGastoRubro(){
     return p?p.monto:0;
   };
 
-  const todosRubros=[...new Set([
+  const todosRubros=ordenarRubrosManual([...new Set([
     ...getRubrosTodos(), // rubros de "Gestionar rubros": aparecen siempre, aunque todavía no tengan gastos (para poder proyectar)
     ...Object.keys(porRubroCC),
     ...Object.keys(porRubroMO),
     ...Object.keys(porRubroPD),
     ...(data.presupuesto_gasto_rubro||[]).filter(p=>p.obraId===oid).map(p=>p.rubro),
     ...(data.presupuesto_proyectado_rubro||[]).filter(p=>p.obraId===oid).map(p=>p.rubro)
-  ])].sort();
+  ])]);
 
   const totalCCsum=Object.values(porRubroCC).reduce((a,v)=>a+v,0);
   const totalMOsum=Object.values(porRubroMO).reduce((a,v)=>a+v,0);
@@ -2223,7 +2339,7 @@ function renderSubTabGastoRubro(){
   const totalDiferencia=totalPresupuestado-totalGeneralConProy;
 
   let rows='';
-  todosRubros.forEach(r=>{
+  todosRubros.forEach((r,i)=>{
     const cc=porRubroCC[r]||0;
     const mo=porRubroMO[r]||0;
     const pd=porRubroPD[r]||0;
@@ -2233,8 +2349,17 @@ function renderSubTabGastoRubro(){
     const presup=getPresupGasto(r);
     const dif=presup-totConProy;
     const hayPresup=presup>0;
+    const varPct=hayPresup?(dif/presup*100):null;
+    const rEsc=r.replace(/'/g,"\\'");
+    const fijado=esRubroFijado(r);
     rows+=`<tr>
-      <td><strong>${r}</strong></td>
+      <td style="white-space:nowrap">${fijado?`
+        <button type="button" title="Fijado en esta posición. Click para desfijar" onclick="toggleFijarRubro('${rEsc}')" style="border:none;background:none;cursor:pointer;font-size:12px;line-height:1;color:#b3541e;padding:0;margin-right:4px;vertical-align:middle">📌</button>`:`
+        <span style="display:inline-flex;flex-direction:column;vertical-align:middle;margin-right:2px">
+          <button type="button" title="Subir" onclick="moverRubroGasto('${rEsc}',-1)" style="border:none;background:none;cursor:pointer;font-size:9px;line-height:1;color:#999;padding:0">▲</button>
+          <button type="button" title="Bajar" onclick="moverRubroGasto('${rEsc}',1)" style="border:none;background:none;cursor:pointer;font-size:9px;line-height:1;color:#999;padding:0">▼</button>
+        </span>
+        <button type="button" title="Fijar en esta posición" onclick="toggleFijarRubro('${rEsc}')" style="border:none;background:none;cursor:pointer;font-size:11px;line-height:1;color:#ccc;padding:0;margin-right:4px;vertical-align:middle">📌</button>`}<strong>${i+1}. ${r}</strong></td>
       <td style="text-align:right;color:#8a6400">${fmtARS(cc)}</td>
       <td style="text-align:right;color:#1a6ef5">${fmtARS(mo)}</td>
       <td style="text-align:right;color:#0d7a6e">${fmtARS(pd)}</td>
@@ -2243,6 +2368,7 @@ function renderSubTabGastoRubro(){
       <td style="text-align:right;font-weight:700;color:#333">${fmtARS(totConProy)}</td>
       <td style="text-align:right;color:#555">${hayPresup?fmtARS(presup):'—'}</td>
       <td style="text-align:right;font-weight:600;color:${!hayPresup?'#aaa':(dif>=0?'#1a7a4a':'#c0392b')}">${hayPresup?(dif>=0?'+':'')+fmtARS(dif):'—'}</td>
+      <td style="text-align:right;font-weight:600;color:${!hayPresup?'#aaa':(dif>=0?'#1a7a4a':'#c0392b')}">${hayPresup?(varPct>=0?'+':'')+varPct.toFixed(1)+'%':'—'}</td>
       <td><button class="btn btn-sm btn-edit" onclick="openModalPresupGasto(${oid},'${r.replace(/'/g,"\\'")}')">${hayPresup?'✏':'+'}</button></td>
     </tr>`;
   });
@@ -2308,10 +2434,14 @@ function renderSubTabGastoRubro(){
         <div class="metric-label" style="color:${totalDiferencia>=0?'#1a7a4a':'#c0392b'}">Diferencia</div>
         <div class="metric-value ${totalDiferencia>=0?'green':'red'}" style="font-size:19px">${totalDiferencia>=0?'+':''}${fmtARS(totalDiferencia)}</div>
       </div>
+      <div class="metric" style="flex:1;min-width:120px;background:${totalDiferencia>=0?'#f0faf3':'#fdf0ef'};border:2px solid ${totalDiferencia>=0?'#1a7a4a':'#c0392b'}">
+        <div class="metric-label" style="color:${totalDiferencia>=0?'#1a7a4a':'#c0392b'}">Variación %</div>
+        <div class="metric-value ${totalDiferencia>=0?'green':'red'}" style="font-size:19px">${totalPresupuestado>0?(totalDiferencia>=0?'+':'')+(totalDiferencia/totalPresupuestado*100).toFixed(1)+'%':'—'}</div>
+      </div>
     </div>
     ${addBtnsGasto}
     ${todosRubros.length?`<div style="overflow-x:auto"><table style="font-size:12px"><thead><tr>
-      <th>Rubro</th><th style="text-align:right">Caja Chica</th><th style="text-align:right">Mano de Obra</th><th style="text-align:right">Pagos directos</th><th style="text-align:right">Total gastado</th><th style="text-align:right">Proyectado</th><th style="text-align:right">Total + Proyectado</th><th style="text-align:right">Presupuestado</th><th style="text-align:right">Diferencia</th><th></th>
+      <th>Rubro</th><th style="text-align:right">Caja Chica</th><th style="text-align:right">Mano de Obra</th><th style="text-align:right">Pagos directos</th><th style="text-align:right">Total gastado</th><th style="text-align:right">Proyectado</th><th style="text-align:right">Total + Proyectado</th><th style="text-align:right">Presupuestado</th><th style="text-align:right">Diferencia</th><th style="text-align:right">Var. %</th><th></th>
     </tr></thead><tbody>${rows}</tbody></table></div>`:'<div class="empty">Sin gastos registrados todavía para esta obra.</div>'}
   </div>`;
 }
@@ -2385,13 +2515,13 @@ function imprimirGastoRubro(oid){
     return p?p.monto:0;
   };
 
-  const todosRubros=[...new Set([
+  const todosRubros=ordenarRubrosManual([...new Set([
     ...Object.keys(porRubroCC),
     ...Object.keys(porRubroMO),
     ...Object.keys(porRubroPD),
     ...(data.presupuesto_gasto_rubro||[]).filter(p=>p.obraId===oid).map(p=>p.rubro),
     ...(data.presupuesto_proyectado_rubro||[]).filter(p=>p.obraId===oid).map(p=>p.rubro)
-  ])].sort();
+  ])]);
 
   const totalCCsum=Object.values(porRubroCC).reduce((a,v)=>a+v,0);
   const totalMOsum=Object.values(porRubroMO).reduce((a,v)=>a+v,0);
@@ -2412,8 +2542,9 @@ function imprimirGastoRubro(oid){
     const presup=getPresupGasto(r);
     const dif=presup-totConProy;
     const hayPresup=presup>0;
+    const varPct=hayPresup?(dif/presup*100):null;
     return `<tr style="background:${i%2?'#fafafa':'#fff'}">
-      <td style="border:1px solid #ddd;padding:6px 10px;font-weight:600">${r}</td>
+      <td style="border:1px solid #ddd;padding:6px 10px;font-weight:600">${i+1}. ${r}</td>
       <td style="border:1px solid #ddd;padding:6px 10px;text-align:right">${fmtARS(cc)}</td>
       <td style="border:1px solid #ddd;padding:6px 10px;text-align:right">${fmtARS(mo)}</td>
       <td style="border:1px solid #ddd;padding:6px 10px;text-align:right">${fmtARS(pd)}</td>
@@ -2422,6 +2553,7 @@ function imprimirGastoRubro(oid){
       <td style="border:1px solid #ddd;padding:6px 10px;text-align:right;font-weight:700">${fmtARS(totConProy)}</td>
       <td style="border:1px solid #ddd;padding:6px 10px;text-align:right">${hayPresup?fmtARS(presup):'—'}</td>
       <td style="border:1px solid #ddd;padding:6px 10px;text-align:right;font-weight:600;color:${!hayPresup?'#888':(dif>=0?'#1a7a4a':'#c0392b')}">${hayPresup?(dif>=0?'+':'')+fmtARS(dif):'—'}</td>
+      <td style="border:1px solid #ddd;padding:6px 10px;text-align:right;font-weight:600;color:${!hayPresup?'#888':(dif>=0?'#1a7a4a':'#c0392b')}">${hayPresup?(varPct>=0?'+':'')+varPct.toFixed(1)+'%':'—'}</td>
     </tr>`;
   }).join('');
 
@@ -2465,6 +2597,10 @@ function imprimirGastoRubro(oid){
       <div style="font-size:11px;color:#888;text-transform:uppercase;letter-spacing:.4px">Diferencia vs. presupuestado</div>
       <div style="font-size:17px;font-weight:700;margin-top:4px;color:${totalDiferencia>=0?'#1a7a4a':'#c0392b'}">${totalDiferencia>=0?'+':''}${fmtARS(totalDiferencia)}</div>
     </div>
+    <div style="flex:1;min-width:110px;border:1px solid ${totalDiferencia>=0?'#a8e0b8':'#f5c6c2'};border-radius:8px;padding:12px;background:${totalDiferencia>=0?'#f0faf3':'#fdf0ef'}">
+      <div style="font-size:11px;color:#888;text-transform:uppercase;letter-spacing:.4px">Variación %</div>
+      <div style="font-size:17px;font-weight:700;margin-top:4px;color:${totalDiferencia>=0?'#1a7a4a':'#c0392b'}">${totalPresupuestado>0?(totalDiferencia>=0?'+':'')+(totalDiferencia/totalPresupuestado*100).toFixed(1)+'%':'—'}</div>
+    </div>
   </div>
   ${todosRubros.length?`
   <table style="width:100%;border-collapse:collapse;font-size:12px">
@@ -2478,6 +2614,7 @@ function imprimirGastoRubro(oid){
       <th style="border:1px solid #ddd;padding:7px 10px;text-align:right">Total + Proyectado</th>
       <th style="border:1px solid #ddd;padding:7px 10px;text-align:right">Presupuestado</th>
       <th style="border:1px solid #ddd;padding:7px 10px;text-align:right">Diferencia</th>
+      <th style="border:1px solid #ddd;padding:7px 10px;text-align:right">Var. %</th>
     </tr></thead><tbody>
     ${rows}
     <tr style="background:#f5f5f5;font-weight:700">
@@ -2490,6 +2627,7 @@ function imprimirGastoRubro(oid){
       <td style="border:1px solid #ddd;padding:7px 10px;text-align:right">${fmtARS(totalGeneralConProy)}</td>
       <td style="border:1px solid #ddd;padding:7px 10px;text-align:right">${fmtARS(totalPresupuestado)}</td>
       <td style="border:1px solid #ddd;padding:7px 10px;text-align:right;color:${totalDiferencia>=0?'#1a7a4a':'#c0392b'}">${totalDiferencia>=0?'+':''}${fmtARS(totalDiferencia)}</td>
+      <td style="border:1px solid #ddd;padding:7px 10px;text-align:right;color:${totalDiferencia>=0?'#1a7a4a':'#c0392b'}">${totalPresupuestado>0?(totalDiferencia>=0?'+':'')+(totalDiferencia/totalPresupuestado*100).toFixed(1)+'%':'—'}</td>
     </tr>
     </tbody>
   </table>`:'<div style="text-align:center;color:#888;padding:20px">Sin gastos registrados todavía para esta obra.</div>'}
@@ -2886,6 +3024,8 @@ function guardarRenombreRubro(oldName){
   (data.presupuesto_gasto_rubro||[]).forEach(p=>{if(p.rubro===oldName)p.rubro=nuevo;});
   (data.presupuesto_proyectado_rubro||[]).forEach(p=>{if(p.rubro===oldName)p.rubro=nuevo;});
   (data.pagos_directos||[]).forEach(p=>{if(p.rubro===oldName)p.rubro=nuevo;});
+  if(data.ordenRubrosGasto)data.ordenRubrosGasto=data.ordenRubrosGasto.map(r=>r===oldName?nuevo:r);
+  if(data.rubrosFijados)data.rubrosFijados=data.rubrosFijados.map(r=>r===oldName?nuevo:r);
   save();closeModal();renderCajaDetalle();showToast('✓ Rubro renombrado a "'+nuevo+'"');
 }
 
