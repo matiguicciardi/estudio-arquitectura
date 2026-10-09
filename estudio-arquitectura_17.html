@@ -1070,6 +1070,7 @@ function renderCaja(){
           <div class="card-sub" style="margin-top:4px">CC gastado: ${fmtARS(_cc+_mo)} · Recibido cliente: ${fmtARS(_recibido)}</div>
         </div>
         <div class="row-actions">
+          <button class="btn btn-primary btn-sm" onclick="openModalNuevoGasto(${cajaObraId})">+ Cargar gasto</button>
           <select onchange="cajaObraId=parseInt(this.value)||null;cajaSubTab='cc';renderCaja()" style="padding:7px 10px;border-radius:8px;border:1px solid #d0cfc8;background:#faf9f6;font-size:13px">
             <option value="">— Cambiar obra —</option>${oOpts}
           </select>
@@ -1120,7 +1121,7 @@ function renderCaja(){
   $('sec-caja').innerHTML=`<div class="card">
     <div class="card-header">
       <div><div class="card-title">Caja de obras</div><div class="card-sub">Seleccioná una obra para ver el detalle</div></div>
-      <button class="btn btn-primary btn-sm" onclick="openModal('caja-mov')">+ Registrar</button>
+      <button class="btn btn-primary btn-sm" onclick="openModalNuevoGasto()">+ Cargar gasto</button>
     </div>
     <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:14px">
       ${cards||'<div class="empty">No hay obras.</div>'}
@@ -1226,7 +1227,7 @@ function renderCaja_REMOVED(){
         <select onchange="cajaObraId=parseInt(this.value)||null;cajaTab='todos';window._moFiltro='todos';renderCajaDetalle()" style="padding:7px 10px;border-radius:8px;border:1px solid #d0cfc8;background:#faf9f6;font-size:13px">
           <option value="">— Seleccionar obra —</option>${oOpts}
         </select>
-        <button class="btn btn-primary btn-sm" onclick="openModal('caja-mov')">+ Registrar</button>
+        <button class="btn btn-primary btn-sm" onclick="openModalNuevoGasto()">+ Cargar gasto</button>
       </div>
     </div>
     <div id="caja-detalle"></div>
@@ -2030,6 +2031,11 @@ function renderSubTabMO(){
       <div class="metric" style="flex:1;min-width:120px">
         <div class="metric-label">Pagado a gremios</div>
         <div class="metric-value red">${fmtARS(totalPagado)}</div>
+      </div>
+      <div class="metric" style="flex:1;min-width:140px;background:${saldoMO>=0?'#f0faf3':'#fdf0ef'};border:2px solid ${saldoMO>=0?'#1a7a4a':'#c0392b'}">
+        <div class="metric-label" style="color:${saldoMO>=0?'#1a7a4a':'#c0392b'}">Saldo disponible MO</div>
+        <div class="metric-value ${saldoMO>=0?'green':'red'}" style="font-size:22px">${fmtARS(saldoMO)}</div>
+        <div style="font-size:10px;color:#aaa;margin-top:2px">Fondos recibidos − Pagado a gremios${saldoMO<0?' · adelantado de bolsillo':''}</div>
       </div>
       <div class="metric" style="flex:1;min-width:140px;background:${totalGanancia>=0?'#f0faf3':'#fdf0ef'};border:2px solid ${totalGanancia>=0?'#1a7a4a':'#c0392b'}">
         <div class="metric-label" style="color:${totalGanancia>=0?'#1a7a4a':'#c0392b'}">💰 Ganancia MO</div>
@@ -3179,6 +3185,9 @@ function openModal(tipo,extra,editId){
       <div class="modal-footer"><button class="btn" onclick="closeModal()">Cancelar</button><button class="btn btn-primary" onclick="saveIngresoCC(${oid})">Guardar</button></div>
     </div>
     <div id="cc-form-gasto" style="display:${esEdicion?'block':'none'}">
+      <div class="form-row"><label>¿A qué caja va este gasto?</label>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px"><button type="button" class="btn" style="padding:10px;font-size:12px;background:#8a6400;color:#fff;border:1px solid #8a6400">🧾 Caja chica ✓</button><button type="button" class="btn" style="padding:10px;font-size:12px;background:#e8f0fe;color:#1a6ef5;border:1px solid #c0d8fa" onclick="cambiarDestinoGasto(${oid},'mo',${editId||0})">👷 Mano de obra</button></div>
+      </div>
       <div class="form-row2">
         <div class="form-row"><label>Proveedor</label><input id="f-item" value="${m.item||''}" placeholder="Ej: Ferretería, EASY..."></div>
         <div class="form-row"><label>Fecha</label><input id="f-fecha" type="date" value="${m.fecha||today()}"></div>
@@ -3246,6 +3255,9 @@ function openModal(tipo,extra,editId){
       <div class="modal-footer"><button class="btn" onclick="closeModal()">Cancelar</button><button class="btn btn-primary" onclick="saveIngresoMO(${oid})">Guardar</button></div>
     </div>
     <div id="mo-form-pago" style="display:${esEdicion?'block':'none'}">
+      <div class="form-row"><label>¿A qué caja va este gasto?</label>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px"><button type="button" class="btn" style="padding:10px;font-size:12px;background:#fff8ec;color:#8a6400;border:1px solid #f0d898" onclick="cambiarDestinoGasto(${oid},'cc',${editId||0})">🧾 Caja chica</button><button type="button" class="btn" style="padding:10px;font-size:12px;background:#1a6ef5;color:#fff;border:1px solid #1a6ef5">👷 Mano de obra ✓</button></div>
+      </div>
       <div class="form-row"><label>Gremio / Rubro</label>
         <select id="f-rubro">${rubrosOpts}</select>
         <div style="display:flex;gap:6px;margin-top:6px">
@@ -3566,6 +3578,47 @@ function openModal(tipo,extra,editId){
 
   mc.innerHTML=html;bg.classList.add('open');
   setTimeout(()=>{const inp=mc.querySelector('input:not([type="date"]):not([type="number"])');if(inp)inp.focus();},80);
+}
+
+// ── CARGAR GASTO: elegir a qué caja va (Caja chica / Mano de obra) ──
+function openModalNuevoGasto(oid){
+  const bg=$('modal-bg'),mc=$('modal-content');
+  const sel=oid||cajaObraId||'';
+  const oOpts=data.obras.map(o=>`<option value="${o.id}"${sel==o.id?' selected':''}>${o.nombre}</option>`).join('');
+  mc.innerHTML=`<h2>+ Cargar gasto</h2>
+    <div class="modal-hint">Elegí la obra y el tipo de gasto. Se guarda directamente en la caja que corresponde.</div>
+    <div class="form-row"><label>Obra</label><select id="ng-obra"><option value="">— Seleccionar obra —</option>${oOpts}</select></div>
+    <div class="form-row"><label>¿Qué tipo de gasto es?</label>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+        <button type="button" class="btn" onclick="irACargarGasto('cc')" style="padding:16px;font-size:13px;background:#fff8ec;color:#8a6400;border:2px solid #f0d898;font-weight:600">🧾 Caja chica<br><span style="font-size:11px;font-weight:400;opacity:.8">Materiales, ferretería, varios</span></button>
+        <button type="button" class="btn" onclick="irACargarGasto('mo')" style="padding:16px;font-size:13px;background:#e8f0fe;color:#1a6ef5;border:2px solid #c0d8fa;font-weight:600">👷 Mano de obra<br><span style="font-size:11px;font-weight:400;opacity:.8">Pagos a gremios</span></button>
+      </div>
+    </div>
+    <div class="modal-footer"><button class="btn" onclick="closeModal()">Cancelar</button></div>`;
+  bg.classList.add('open');
+}
+function irACargarGasto(dest){
+  const oid=parseInt(($('ng-obra')||{}).value)||0;
+  if(!oid)return alert('Seleccioná una obra');
+  abrirGastoEnCaja(oid,dest,0,null);
+}
+const CAMPOS_GASTO=['f-item','f-fecha','f-socio','f-monto','f-fp','f-obs'];
+function abrirGastoEnCaja(oid,dest,eid,vals){
+  if(dest==='mo'){openModal('ingreso-mo',oid,eid||undefined);if(!eid)setMOTipo('pago');}
+  else{openModal('ingreso-cc',oid,eid||undefined);if(!eid)setCCTipo('gasto');}
+  if(vals){
+    CAMPOS_GASTO.forEach(id=>{const el=$(id);if(el&&vals[id]!=null&&vals[id]!=='')el.value=vals[id];});
+    const rs=$(dest==='mo'?'f-rubro':'f-rubro-cc');
+    if(rs&&vals.rubro&&[...rs.options].some(o=>o.value===vals.rubro))rs.value=vals.rubro;
+  }
+}
+// Cambia el destino del gasto que se está cargando/editando, sin perder lo ya escrito
+function cambiarDestinoGasto(oid,dest,eid){
+  const vals={};
+  CAMPOS_GASTO.forEach(id=>{const el=$(id);if(el)vals[id]=el.value;});
+  const rs=$('f-rubro-cc')||$('f-rubro');
+  vals.rubro=rs?rs.value:'';
+  abrirGastoEnCaja(oid,dest,eid,vals);
 }
 
 function closeModal(){$('modal-bg').classList.remove('open');}
@@ -3909,7 +3962,7 @@ function saveGastoCC(oid,eid){
     formaPago:gv('f-fp')||'Efectivo'};
   if(eid){Object.assign(data.caja.find(x=>x.id===eid),obj);}
   else{data.caja.push({id:data.nextId.caja++,...obj});}
-  save();closeModal();renderCajaDetalle();showToast('✓ Gasto de caja chica registrado');
+  cajaObraId=parseInt(oid);cajaSubTab='cc';save();closeModal();renderCaja();showToast('✓ Gasto guardado en Caja Chica');
 }
 function agregarRubrosCC(){
   const inp=$('f-rubro-cc-nuevo');
@@ -3974,7 +4027,8 @@ function savePagoMO(oid,eid){
     formaPago:gv('f-fp')||'Efectivo'};
   if(eid){Object.assign(data.caja.find(x=>x.id===eid),obj);}
   else{data.caja.push({id:data.nextId.caja++,...obj});}
-  save();closeModal();renderCajaDetalle();showToast('✓ Pago de mano de obra registrado');
+  if(eid){const mm=data.caja.find(x=>x.id===eid);if(mm)mm.tipoGasto='real';}
+  cajaObraId=parseInt(oid);cajaSubTab='mo';save();closeModal();renderCaja();showToast('✓ Gasto guardado en Caja MO');
 }
 // ── PAGO DEL CLIENTE CON PROPÓSITO ─────────────────────────
 function setPagoClienteProp(prop){
