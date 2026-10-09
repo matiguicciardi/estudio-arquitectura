@@ -2012,9 +2012,9 @@ function renderSubTabMO(){
       </div>
       <div class="row-actions">
         <button class="btn btn-sm btn-primary" onclick="openModal('ingreso-mo',${oid})">+ Registrar pago</button>
-        <button class="btn btn-sm" style="background:#edf7f1;color:#1a7a4a;border:1px solid #a8e0b8;font-weight:600" onclick="imprimirPlanillaCliente(${oid})">🖨 Planilla CLIENTE</button>
+        <button class="btn btn-sm" style="background:#edf7f1;color:#1a7a4a;border:1px solid #a8e0b8;font-weight:600" onclick="imprimirPlanillaCliente(${oid})">🖨 Planilla CLIENTE${filtro!=='todos'?' · '+filtro:''}</button>
         <button class="btn btn-sm" style="background:#e8f0fe;color:#1a6ef5;border:1px solid #c0d8fa;font-weight:600" onclick="imprimirPlanillaMOCliente(${oid})">🖨 Resumen MO Cliente</button>
-        <button class="btn btn-sm" style="background:#fdf0ef;color:#c0392b;border:1px solid #f5c0b8;font-weight:600" onclick="imprimirPlanillaProveedor(${oid})">🖨 Planilla PROVEEDOR</button>
+        <button class="btn btn-sm" style="background:#fdf0ef;color:#c0392b;border:1px solid #f5c0b8;font-weight:600" onclick="imprimirPlanillaProveedor(${oid})">🖨 Planilla PROVEEDOR${filtro!=='todos'?' · '+filtro:''}</button>
       </div>
     </div>
 
@@ -4411,7 +4411,8 @@ function imprimirPlanillaCliente(oid){
   const fecha=new Date().toLocaleDateString('es-AR',{day:'2-digit',month:'2-digit',year:'numeric'});
 
   // Solo rubros con precio pactado con el cliente
-  const rubros=(data.presupuesto_rubros||[]).filter(p=>p.obraId===oid&&p.monto>0);
+  const rubroSel=(window._moFiltro&&window._moFiltro!=='todos')?window._moFiltro:null;
+  const rubros=(data.presupuesto_rubros||[]).filter(p=>p.obraId===oid&&p.monto>0&&(!rubroSel||p.rubro===rubroSel));
   const totalCliente=rubros.reduce((a,p)=>a+p.monto,0);
 
   const filas=rubros.map((p,i)=>`
@@ -4475,7 +4476,9 @@ function imprimirPlanillaProveedor(oid){
   const fecha=new Date().toLocaleDateString('es-AR',{day:'2-digit',month:'2-digit',year:'numeric'});
 
   // Agrupar movimientos MO por proveedor/gremio
-  const moMovs=data.caja.filter(m=>m.obraId===oid&&m.tipo==='mano_obra').sort((a,b)=>a.fecha.localeCompare(b.fecha));
+  // Si hay un rubro filtrado en pantalla, se imprime solo ese rubro
+  const rubroSel=(window._moFiltro&&window._moFiltro!=='todos')?window._moFiltro:null;
+  const moMovs=data.caja.filter(m=>m.obraId===oid&&m.tipo==='mano_obra'&&(!rubroSel||m.rubro===rubroSel)).sort((a,b)=>a.fecha.localeCompare(b.fecha));
   const total=moMovs.reduce((a,m)=>a+m.monto,0);
 
   // Agrupar por gremio (item)
@@ -4535,10 +4538,11 @@ function imprimirPlanillaProveedor(oid){
 
   <div style="margin-bottom:20px">
     <div style="font-size:18px;font-weight:700">${obra.nombre}</div>
+    ${rubroSel?`<div style="font-size:14px;font-weight:700;color:#1a6ef5;margin-top:4px">Rubro: ${rubroSel}</div>`:''}
   </div>
 
   <div style="background:#fdf0ef;border:2px solid #c0392b;border-radius:8px;padding:14px;margin-bottom:20px;display:inline-block;min-width:220px">
-    <div style="font-size:11px;color:#c0392b;text-transform:uppercase;letter-spacing:.4px;font-weight:600">Total pagado a proveedores</div>
+    <div style="font-size:11px;color:#c0392b;text-transform:uppercase;letter-spacing:.4px;font-weight:600">Total pagado${rubroSel?' — '+rubroSel:' a proveedores'}</div>
     <div style="font-size:28px;font-weight:700;color:#c0392b;margin-top:4px">${fmtARS(total)}</div>
   </div>
 
