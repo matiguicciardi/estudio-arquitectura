@@ -96,6 +96,11 @@ tr:hover td{background:#faf9f6}
 .tab-bar{display:flex;gap:0;margin-bottom:14px;border-bottom:1px solid #e0dfd8;flex-wrap:wrap}
 .tab-btn{padding:8px 16px;font-size:13px;cursor:pointer;color:#888;border:none;background:none;border-bottom:2px solid transparent}
 .tab-btn.active{color:#1a1a1a;border-bottom-color:#1a1a1a;font-weight:500}
+/* Solapas de obra estilo pestañas de navegador */
+.obra-tabs{display:flex;flex-wrap:wrap;gap:4px;margin:10px 0 14px;padding:6px 6px 0;background:#e9e7df;border-radius:10px 10px 0 0;border-bottom:3px solid var(--tabc,#1a1a1a)}
+.obra-tab{padding:9px 16px;font-size:13px;cursor:pointer;color:#6b6a64;border:1px solid transparent;border-bottom:none;background:transparent;border-radius:9px 9px 0 0;white-space:nowrap;transition:background .12s}
+.obra-tab:hover{background:#dcdad1;color:#1a1a1a}
+.obra-tab.active,.obra-tab.active:hover{background:var(--tabc,#1a1a1a);color:#fff;font-weight:700;box-shadow:0 -2px 6px rgba(0,0,0,.12)}
 .gantt-bar{transition:box-shadow .15s}
 .gantt-bar:hover{box-shadow:0 2px 6px rgba(0,0,0,.25)}
 .gantt-bar:active{cursor:grabbing!important}
@@ -510,6 +515,10 @@ let data={
   pagos_directos:[],
   cuotas_mo:[],
   presupuesto_rubros:[],
+  presup_contratistas:[],
+  extras_mo:[],
+  planes_mo:[],
+  cac_indices:{},
   presupuesto_gasto_rubro:[],
   presupuesto_proyectado_rubro:[],
   nextId:{cliente:5,obra:5,caja:100,interno:20,honorario:4,gasto:1,tablaHon:4,cuota:15,fondo:1,pagodirecto:1,cuotamo:1}
@@ -769,6 +778,10 @@ function fixData(){
   if(!data.tablasHon)data.tablasHon=[];
   if(!data.fondos)data.fondos=[];
   if(!data.rubrosExtra)data.rubrosExtra=[];
+  if(!data.presup_contratistas)data.presup_contratistas=[];
+  if(!data.extras_mo)data.extras_mo=[];
+  if(!data.planes_mo)data.planes_mo=[];
+  if(!data.cac_indices)data.cac_indices={};
   if(!data.rubrosCC)data.rubrosCC=[];
   if(!data.rubrosTodos||!data._rubrosMigrados){
     const seed=new Set([
@@ -1076,8 +1089,8 @@ function renderCaja(){
           </select>
         </div>
       </div>
-      <div class="tab-bar" style="margin-top:8px">
-        ${TABS.map(t=>`<button class="tab-btn${cajaSubTab===t.id?' active':''}" onclick="cajaSubTab='${t.id}';window._ccFiltro='todos';renderCajaSubTab()" style="${cajaSubTab===t.id?'border-bottom-color:'+t.color+';color:'+t.color:''}">${t.label}</button>`).join('')}
+      <div class="obra-tabs" id="obra-tabs" style="--tabc:${(TABS.find(t=>t.id===cajaSubTab)||TABS[0]).color}">
+        ${TABS.map(t=>`<button class="obra-tab${cajaSubTab===t.id?' active':''}" data-tab="${t.id}" data-color="${t.color}" onclick="irASolapaObra('${t.id}')">${t.label}</button>`).join('')}
       </div>
       <div id="caja-detalle"></div>
     </div>`;
@@ -1189,6 +1202,9 @@ function renderSubTabCobrosMO(){
       </div>
     </div>
 
+    ${renderPlanesMOBlock(oid)}
+
+    <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:#555;margin-bottom:8px">Cobros registrados</div>
     ${fondos.length?`<div style="overflow-x:auto"><table style="font-size:12px"><thead><tr>
       <th>Fecha</th><th>Descripción</th><th>Quién recibió</th><th>F. pago</th><th style="text-align:right">Monto</th><th>Obs.</th><th></th>
     </tr></thead><tbody>${rows}</tbody>
@@ -1202,13 +1218,359 @@ function renderSubTabCobrosMO(){
   </div>`;
 }
 
+// ── PLANES DE COBRO MO POR CONTRATISTA (cuotas con ajuste CAC) ────────────
+// Igual que la planilla de Excel: cada cuota tiene un capital y el CAC de un mes;
+// interés = capital × (índice del mes / índice base − 1). Los índices se cargan una sola vez
+// (tabla general) y sirven para todos los contratistas y obras.
+const MESES_ES=['Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre'];
+function _mesNombre(m){if(!m)return '—';const [y,mm]=m.split('-');return MESES_ES[parseInt(mm)-1]+' '+y;}
+function _mesSuma(m,k){let [y,mm]=m.split('-').map(Number);mm+=k;while(mm>12){mm-=12;y++;}while(mm<1){mm+=12;y--;}return y+'-'+String(mm).padStart(2,'0');}
+function _fechaSumaMeses(f,k){const [y,m,d]=f.split('-').map(Number);const t=new Date(y,m-1+k,1);const ult=new Date(t.getFullYear(),t.getMonth()+1,0).getDate();
+  return t.getFullYear()+'-'+String(t.getMonth()+1).padStart(2,'0')+'-'+String(Math.min(d,ult)).padStart(2,'0');}
+function _fechaAR(f){return f?f.split('-').reverse().join('/'):'—';}
+function _fmtIdx(v){return Number(v).toLocaleString('es-AR',{minimumFractionDigits:2,maximumFractionDigits:2});}
+function getPlanesMO(oid){return (data.planes_mo||[]).filter(p=>p.obraId===oid);}
+function getPlanMO(id){return (data.planes_mo||[]).find(p=>p.id===id)||null;}
+// Índice del mes; si todavía no está publicado/cargado usa el último anterior (estimado)
+function cacDelMes(mes){
+  const t=data.cac_indices||{};
+  if(t[mes])return {valor:t[mes],estimado:false,mes};
+  const prev=Object.keys(t).filter(m=>m<mes&&t[m]).sort().pop();
+  return prev?{valor:t[prev],estimado:true,mes:prev}:null;
+}
+function calcPlanMO(plan){
+  const conCac=plan.tipoAjuste==='cac';
+  const base=conCac?((data.cac_indices||{})[plan.mesBase]||0):0;
+  const fondos=(data.fondos||[]).filter(f=>f.tipo==='mano_obra'&&f.planId===plan.id);
+  const rows=(plan.cuotas||[]).slice().sort((a,b)=>(a.fecha||'').localeCompare(b.fecha||'')||a.id-b.id).map(c=>{
+    let indice=null,estimado=false,varP=0,interes=0;
+    if(conCac&&base&&c.mesCAC){
+      const e=cacDelMes(c.mesCAC);
+      if(e){indice=e.valor;estimado=e.estimado;varP=(indice/base-1)*100;interes=c.capital*(indice/base-1);}
+    }
+    const pagos=fondos.filter(f=>f.cuotaId===c.id);
+    const pago=pagos.reduce((a,f)=>a+f.monto,0);
+    const fechaPago=pagos.map(f=>f.fecha).sort().pop()||'';
+    const capInt=c.capital+interes;
+    return {c,indice,estimado,varP,interes,capInt,pago,fechaPago,saldo:capInt-pago,nPagos:pagos.length};
+  });
+  const sum=k=>rows.reduce((a,r)=>a+r[k],0);
+  const capital=rows.reduce((a,r)=>a+r.c.capital,0);
+  return {plan,conCac,base,rows,capital,interes:sum('interes'),capInt:sum('capInt'),pago:sum('pago'),saldo:sum('saldo'),
+    estimados:[...new Set(rows.filter(r=>r.estimado).map(r=>r.c.mesCAC))].sort()};
+}
+function renderPlanesMOBlock(oid){
+  const planes=getPlanesMO(oid);
+  let sel=window._planMOSel||'todos';
+  if(sel!=='todos'&&!planes.some(p=>p.id===sel))sel=window._planMOSel='todos';
+  const calcs=planes.map(calcPlanMO);
+  const pill=(id,txt)=>`<button class="btn btn-sm" style="${sel===id?'background:#b3541e;color:#fff;border-color:#b3541e':'background:#fff4ea;color:#b3541e;border:1px solid #f0d2b8'}" onclick="window._planMOSel=${id==='todos'?"'todos'":id};renderSubTabCobrosMO()">${txt}</button>`;
+  const head=`<div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;margin-bottom:12px">
+      <div>
+        <div style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:#b3541e">📈 Plan de cobros por contratista · ajuste CAC</div>
+        <div style="font-size:11px;color:#aaa;margin-top:2px">Cuotas con capital + interés por variación del CAC · cada contratista tiene su propio plan</div>
+      </div>
+      <div class="row-actions">
+        <button class="btn btn-sm btn-primary" onclick="openModalPlanMO(${oid},0)">+ Plan de contratista</button>
+        <button class="btn btn-sm btn-edit" onclick="openModalCacIndices('')">📊 Índices CAC</button>
+      </div>
+    </div>`;
+  const box=inner=>`<div style="background:#fff;border:1px solid #f0d2b8;border-radius:10px;padding:14px;margin-bottom:16px">${inner}</div>`;
+  if(!planes.length){
+    return box(head+'<div class="empty" style="padding:10px 0">Todavía no hay planes de cobro. Usá "+ Plan de contratista" para armar las cuotas de un contratista con su CAC base.</div>');
+  }
+  const pills=`<div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:12px;align-items:center">
+      <span style="font-size:11px;color:#888;font-weight:600;text-transform:uppercase;letter-spacing:.4px">Contratista:</span>
+      ${pill('todos','Todos')}${planes.map(p=>pill(p.id,_escH(p.nombre))).join('')}
+    </div>`;
+  const cards=(t,extra)=>`<div style="display:flex;flex-wrap:wrap;gap:10px;margin-bottom:12px">
+      ${extra||''}
+      <div class="metric" style="flex:1;min-width:140px"><div class="metric-label">Total mano de obra</div><div class="metric-value" style="font-size:20px">${fmtARS(t.capital)}</div><div style="font-size:10px;color:#888;margin-top:2px">Capital</div></div>
+      <div class="metric" style="flex:1;min-width:140px;background:#fdf0ef;border:1px solid #f5c6c2"><div class="metric-label" style="color:#c0392b">Interés CAC</div><div class="metric-value red" style="font-size:20px">${fmtARS(t.interes)}</div><div style="font-size:10px;color:#888;margin-top:2px">Actualizado: ${fmtARS(t.capInt)}</div></div>
+      <div class="metric" style="flex:1;min-width:140px;background:#edf7f1;border:1px solid #b8e6cc"><div class="metric-label" style="color:#1a7a4a">Cobrado</div><div class="metric-value green" style="font-size:20px">${fmtARS(t.pago)}</div></div>
+      <div class="metric" style="flex:1;min-width:150px;background:#fff4ea;border:2px solid #b3541e"><div class="metric-label" style="color:#b3541e">Saldo a cobrar</div><div class="metric-value" style="font-size:22px;color:#b3541e">${fmtARS(t.saldo)}</div><div style="font-size:10px;color:#888;margin-top:2px">Cap + Int − Cobrado</div></div>
+    </div>`;
+  if(sel==='todos'){
+    const tot={capital:0,interes:0,capInt:0,pago:0,saldo:0};
+    calcs.forEach(c=>{for(const k in tot)tot[k]+=c[k];});
+    const filas=calcs.map(c=>`<tr>
+        <td style="font-weight:700">${_escH(c.plan.nombre)}${c.plan.rubro?`<div style="font-size:11px;font-weight:400;color:#888">${_escH(c.plan.rubro)}</div>`:''}</td>
+        <td>${c.conCac?(c.base?`CAC base ${_fmtIdx(c.base)}<div style="font-size:10px;color:#888">${_mesNombre(c.plan.mesBase)}</div>`:'<span style="color:#b3541e">CAC · falta índice base</span>'):'Sin actualización'}</td>
+        <td style="text-align:right">${fmtARS(c.capital)}</td>
+        <td style="text-align:right;color:#c0392b">${fmtARS(c.interes)}</td>
+        <td style="text-align:right;font-weight:600">${fmtARS(c.capInt)}</td>
+        <td style="text-align:right;color:#1a7a4a;font-weight:600">${fmtARS(c.pago)}</td>
+        <td style="text-align:right;font-weight:700;color:#b3541e">${fmtARS(c.saldo)}</td>
+        <td><button class="btn btn-sm btn-edit" onclick="window._planMOSel=${c.plan.id};renderSubTabCobrosMO()">Ver cuotas →</button></td>
+      </tr>`).join('');
+    return box(head+pills+cards(tot)
+      +`<div style="overflow-x:auto"><table style="font-size:12px;width:100%"><thead><tr>
+        <th>Contratista</th><th>Actualización</th><th style="text-align:right">Capital</th><th style="text-align:right">Interés</th><th style="text-align:right">Cap + Int</th><th style="text-align:right">Cobrado</th><th style="text-align:right">Saldo</th><th></th>
+      </tr></thead><tbody>${filas}</tbody>
+      ${calcs.length>1?`<tfoot><tr style="border-top:2px solid #f0d2b8;font-weight:700;background:#fff8f1"><td colspan="2" style="padding:8px">TOTAL</td>
+        <td style="padding:8px;text-align:right">${fmtARS(tot.capital)}</td><td style="padding:8px;text-align:right;color:#c0392b">${fmtARS(tot.interes)}</td><td style="padding:8px;text-align:right">${fmtARS(tot.capInt)}</td><td style="padding:8px;text-align:right;color:#1a7a4a">${fmtARS(tot.pago)}</td><td style="padding:8px;text-align:right;color:#b3541e">${fmtARS(tot.saldo)}</td><td></td></tr></tfoot>`:''}
+      </table></div>`);
+  }
+  const c=calcs.find(x=>x.plan.id===sel),p=c.plan;
+  const baseCard=c.conCac
+    ?`<div class="metric" style="flex:1;min-width:150px;background:#fff8f1;border:1px solid #f0d2b8"><div class="metric-label" style="color:#b3541e">Índice CAC base</div><div class="metric-value" style="font-size:20px;color:#b3541e">${c.base?_fmtIdx(c.base):'<span style="font-size:13px">Sin cargar</span>'}</div><div style="font-size:10px;color:#888;margin-top:2px">${_mesNombre(p.mesBase)}</div></div>`
+    :`<div class="metric" style="flex:1;min-width:150px"><div class="metric-label">Actualización</div><div class="metric-value" style="font-size:15px">Sin actualización</div><div style="font-size:10px;color:#888;margin-top:2px">Cuotas fijas</div></div>`;
+  const filas=c.rows.map(r=>{
+    const q=r.c;
+    const idxCell=!c.conCac?'—':r.indice?`${_fmtIdx(r.indice)}${r.estimado?' <span title="Índice del mes todavía sin cargar: se usa el último disponible" style="font-size:10px;color:#b3541e;font-weight:700">EST.</span>':''}`:'<span style="color:#b3541e;font-style:italic">Sin índice</span>';
+    const sCol=Math.abs(r.saldo)<1?'#1a7a4a':r.saldo<0?'#1a6ef5':'#c0392b';
+    return `<tr${Math.abs(r.saldo)<1&&r.pago?' style="background:#f6fbf7"':''}>
+      <td style="white-space:nowrap">${_fechaAR(q.fecha)}</td>
+      <td style="font-weight:700">${_escH(q.nombre)}</td>
+      <td style="text-align:right">${fmtARS(q.capital)}</td>
+      <td style="text-align:right">${idxCell}</td>
+      <td style="text-align:right">${c.conCac&&r.indice?r.varP.toFixed(1)+'%':'—'}</td>
+      <td style="text-align:right;color:#c0392b">${r.interes?fmtARS(r.interes):'—'}</td>
+      <td style="text-align:right;font-weight:700">${fmtARS(r.capInt)}</td>
+      <td style="white-space:nowrap;font-size:11px;text-transform:uppercase">${c.conCac?_mesNombre(q.mesCAC):'—'}</td>
+      <td style="text-align:right;font-weight:700;color:#1a7a4a">${r.pago?fmtARS(r.pago):''}</td>
+      <td style="white-space:nowrap">${r.fechaPago?_fechaAR(r.fechaPago):''}${r.nPagos>1?` <span style="font-size:10px;color:#888">(${r.nPagos} pagos)</span>`:''}</td>
+      <td style="text-align:right;font-weight:700;color:${sCol}">${fmtARS(r.saldo)}</td>
+      <td><div class="row-actions">
+        <button class="btn btn-sm btn-primary" onclick="openModalCobroCuota(${oid},${p.id},${q.id})">+ Cobro</button>
+        <button class="btn btn-sm btn-edit" onclick="openModalCuotaMO(${oid},${p.id},${q.id})">Editar</button>
+      </div></td>
+    </tr>`;
+  }).join('');
+  return box(head+pills
+    +`<div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;margin-bottom:10px">
+        <div style="font-size:15px;font-weight:700">👷 ${_escH(p.nombre)}${p.rubro?` <span style="font-size:12px;font-weight:400;color:#888">· ${_escH(p.rubro)}</span>`:''}</div>
+        <div class="row-actions">
+          <button class="btn btn-sm btn-edit" onclick="openModalCuotaMO(${oid},${p.id},0)">+ Cuota</button>
+          <button class="btn btn-sm btn-edit" onclick="openModalPlanMO(${oid},${p.id})">✏ Editar plan</button>
+        </div>
+      </div>`
+    +cards(c,baseCard)
+    +(c.conCac&&!c.base?`<div style="font-size:11px;color:#b3541e;margin-bottom:10px">⚠ Falta el índice CAC de ${_mesNombre(p.mesBase)} (mes base). Cargalo en "📊 Índices CAC" para que calcule los intereses.</div>`:'')
+    +(c.estimados.length?`<div style="font-size:11px;color:#b3541e;margin-bottom:10px">⚠ Sin índice cargado para ${c.estimados.map(_mesNombre).join(', ')}: esas cuotas (EST.) usan el último índice disponible hasta que cargues el definitivo. <a href="#" onclick="openModalCacIndices('${c.estimados[0]}');return false" style="color:#b3541e;font-weight:700">Cargar índice</a></div>`:'')
+    +`<div style="overflow-x:auto"><table style="font-size:12px;width:100%"><thead><tr>
+        <th>Fecha</th><th>Cuotas</th><th style="text-align:right">Capital</th><th style="text-align:right">Índice CAC</th><th style="text-align:right">% Var.</th><th style="text-align:right">Interés</th><th style="text-align:right">Cap + Int</th><th>CAC del mes</th><th style="text-align:right">Pago</th><th>Fecha pago</th><th style="text-align:right">Saldo</th><th></th>
+      </tr></thead><tbody>${filas||'<tr><td colspan="12" class="empty">Este plan no tiene cuotas. Usá "+ Cuota".</td></tr>'}</tbody>
+      <tfoot><tr style="border-top:2px solid #f0d2b8;font-weight:700;background:#fff8f1">
+        <td colspan="2" style="padding:8px">TOTAL</td><td style="padding:8px;text-align:right">${fmtARS(c.capital)}</td><td colspan="2"></td>
+        <td style="padding:8px;text-align:right;color:#c0392b">${fmtARS(c.interes)}</td><td style="padding:8px;text-align:right">${fmtARS(c.capInt)}</td><td></td>
+        <td style="padding:8px;text-align:right;color:#1a7a4a">${fmtARS(c.pago)}</td><td></td><td style="padding:8px;text-align:right;color:#b3541e;font-size:14px">${fmtARS(c.saldo)}</td><td></td>
+      </tr></tfoot></table></div>`);
+}
+function openModalPlanMO(oid,planId){
+  const bg=$('modal-bg'),mc=$('modal-content');
+  const p=planId?getPlanMO(planId):null;
+  const mesBase=p?p.mesBase:today().slice(0,7);
+  const idxBase=(data.cac_indices||{})[mesBase]||'';
+  const rubros=rubrosParaContratista();
+  mc.innerHTML=`<h2>${p?'Editar plan':'+ Plan de cobros de un contratista'}</h2>
+    <div class="modal-hint">Cada contratista tiene su plan: total de mano de obra, forma de actualización y cuotas.</div>
+    <div class="form-row2">
+      <div class="form-row"><label>Contratista</label><input id="pl-nombre" value="${_escH(p?p.nombre:'')}" placeholder="Ej: Mario"></div>
+      <div class="form-row"><label>Rubro (opcional)</label><select id="pl-rubro"><option value="">—</option>${rubros.map(r=>`<option value="${_escH(r)}"${p&&p.rubro===r?' selected':''}>${_escH(r)}</option>`).join('')}</select></div>
+    </div>
+    <div class="form-row"><label>Actualización</label>
+      <select id="pl-tipo" onchange="$('pl-cac-box').style.display=this.value==='cac'?'block':'none'">
+        <option value="cac"${!p||p.tipoAjuste==='cac'?' selected':''}>Índice CAC</option>
+        <option value="ninguno"${p&&p.tipoAjuste!=='cac'?' selected':''}>Sin actualización (cuotas fijas)</option>
+      </select></div>
+    <div id="pl-cac-box" style="display:${!p||p.tipoAjuste==='cac'?'block':'none'}">
+      <div class="form-row2">
+        <div class="form-row"><label>Mes del CAC base</label><input id="pl-mesbase" type="month" value="${mesBase}" onchange="$('pl-idxbase').value=(data.cac_indices||{})[this.value]||''"></div>
+        <div class="form-row"><label>Índice CAC base</label><input id="pl-idxbase" type="number" step="0.01" value="${idxBase}" placeholder="Ej: 16205.20"></div>
+      </div>
+    </div>
+    ${p?'':`<div style="font-size:11px;color:#888;font-weight:600;text-transform:uppercase;letter-spacing:.4px;margin:6px 0 8px">Cuotas (después podés editar cada una)</div>
+    <div class="form-row2">
+      <div class="form-row"><label>Total mano de obra ($)</label><input id="pl-total" type="number" placeholder="Ej: 123200000"></div>
+      <div class="form-row"><label>Cantidad de cuotas (con anticipo)</label><input id="pl-n" type="number" min="1" value="8"></div>
+    </div>
+    <div class="form-row2">
+      <div class="form-row"><label>Fecha de la primera</label><input id="pl-f1" type="date" value="${today()}"></div>
+      <div class="form-row"><label>La primera es</label><select id="pl-anticipo"><option value="1">Anticipo</option><option value="0">Cuota 1</option></select></div>
+    </div>
+    <div style="font-size:11px;color:#aaa;margin-bottom:8px">Se generan cuotas iguales, una por mes. La primera toma el CAC del mes base y cada una siguiente el del mes siguiente.</div>`}
+    <div class="modal-footer">
+      <button class="btn" onclick="closeModal()">Cancelar</button>
+      ${p?`<button class="btn btn-danger" onclick="delPlanMO(${p.id})">Borrar plan</button>`:''}
+      <button class="btn btn-primary" onclick="savePlanMO(${oid},${planId||0})">Guardar</button>
+    </div>`;
+  bg.classList.add('open');
+}
+function savePlanMO(oid,planId){
+  const nombre=(gv('pl-nombre')||'').trim();if(!nombre)return alert('Ingresá el nombre del contratista');
+  const tipo=gv('pl-tipo')==='cac'?'cac':'ninguno';
+  const mesBase=gv('pl-mesbase')||'';
+  const idxBase=parseFloat(($('pl-idxbase')||{}).value)||0;
+  if(tipo==='cac'){
+    if(!/^\d{4}-\d{2}$/.test(mesBase))return alert('Elegí el mes del CAC base');
+    if(!idxBase)return alert('Ingresá el índice CAC base');
+  }
+  if(!data.planes_mo)data.planes_mo=[];
+  if(!data.cac_indices)data.cac_indices={};
+  if(!data.nextId.planmo)data.nextId.planmo=1;
+  if(!data.nextId.cuotaplan)data.nextId.cuotaplan=1;
+  let p=planId?getPlanMO(planId):null;
+  if(!p){
+    const total=parseFloat(($('pl-total')||{}).value)||0;if(!total)return alert('Ingresá el total de mano de obra');
+    const n=Math.max(1,Math.min(60,parseInt(($('pl-n')||{}).value)||1));
+    const f1=gv('pl-f1')||today();
+    const anticipo=gv('pl-anticipo')==='1';
+    const cap=Math.floor(total/n);
+    const cuotas=[];
+    for(let k=0;k<n;k++){
+      cuotas.push({id:data.nextId.cuotaplan++,nombre:(anticipo&&k===0)?'ANTICIPO':'CUOTA '+(anticipo?k:k+1),
+        fecha:_fechaSumaMeses(f1,k),capital:k===n-1?total-cap*(n-1):cap,mesCAC:tipo==='cac'?_mesSuma(mesBase,k):''});
+    }
+    p={id:data.nextId.planmo++,obraId:oid,cuotas};
+    data.planes_mo.push(p);
+  }
+  p.nombre=nombre;p.rubro=gv('pl-rubro')||'';p.tipoAjuste=tipo;
+  if(tipo==='cac'){
+    p.mesBase=mesBase;data.cac_indices[mesBase]=idxBase;
+    (p.cuotas||[]).forEach((c,k)=>{if(!c.mesCAC)c.mesCAC=_mesSuma(mesBase,k);});
+  }
+  window._planMOSel=p.id;
+  save();closeModal();renderSubTabCobrosMO();showToast('✓ Plan de '+nombre+' guardado');
+}
+function delPlanMO(id){
+  const p=getPlanMO(id);if(!p)return;
+  if(!confirm('¿Borrar el plan de '+p.nombre+' con todas sus cuotas? Los cobros ya registrados quedan en la lista de cobros, sin cuota asignada.'))return;
+  data.planes_mo=(data.planes_mo||[]).filter(x=>x.id!==id);
+  (data.fondos||[]).forEach(f=>{if(f.planId===id){delete f.planId;delete f.cuotaId;}});
+  window._planMOSel='todos';
+  save();closeModal();renderSubTabCobrosMO();showToast('Plan eliminado');
+}
+function openModalCuotaMO(oid,planId,cuotaId){
+  const bg=$('modal-bg'),mc=$('modal-content');
+  const p=getPlanMO(planId);if(!p)return;
+  const q=cuotaId?(p.cuotas||[]).find(c=>c.id===cuotaId):null;
+  const ult=(p.cuotas||[]).slice().sort((a,b)=>(a.fecha||'').localeCompare(b.fecha||'')).pop();
+  const def=q||{nombre:'CUOTA '+((p.cuotas||[]).filter(c=>/^CUOTA/i.test(c.nombre)).length+1),fecha:ult?_fechaSumaMeses(ult.fecha,1):today(),capital:ult?ult.capital:'',mesCAC:ult&&ult.mesCAC?_mesSuma(ult.mesCAC,1):(p.mesBase||'')};
+  mc.innerHTML=`<h2>${q?'Editar cuota':'+ Cuota'} · ${_escH(p.nombre)}</h2>
+    <div class="form-row2">
+      <div class="form-row"><label>Nombre</label><input id="cq-nombre" value="${_escH(def.nombre)}"></div>
+      <div class="form-row"><label>Fecha</label><input id="cq-fecha" type="date" value="${def.fecha||''}"></div>
+    </div>
+    <div class="form-row2">
+      <div class="form-row"><label>Capital ($)</label><input id="cq-capital" type="number" value="${def.capital}"></div>
+      ${p.tipoAjuste==='cac'?`<div class="form-row"><label>CAC del mes que se aplica</label><input id="cq-mes" type="month" value="${def.mesCAC||''}"></div>`:'<input type="hidden" id="cq-mes" value="">'}
+    </div>
+    <div class="modal-footer">
+      <button class="btn" onclick="closeModal()">Cancelar</button>
+      ${q?`<button class="btn btn-danger" onclick="delCuotaMO(${planId},${cuotaId})">Borrar cuota</button>`:''}
+      <button class="btn btn-primary" onclick="saveCuotaMO(${planId},${cuotaId||0})">Guardar</button>
+    </div>`;
+  bg.classList.add('open');
+}
+function saveCuotaMO(planId,cuotaId){
+  const p=getPlanMO(planId);if(!p)return;
+  const capital=parseFloat(($('cq-capital')||{}).value)||0;if(!capital)return alert('Ingresá el capital');
+  const fecha=gv('cq-fecha');if(!fecha)return alert('Ingresá la fecha');
+  const mes=gv('cq-mes')||'';
+  if(p.tipoAjuste==='cac'&&!/^\d{4}-\d{2}$/.test(mes))return alert('Elegí el mes del CAC que se aplica');
+  if(!data.nextId.cuotaplan)data.nextId.cuotaplan=1;
+  if(!p.cuotas)p.cuotas=[];
+  const obj={nombre:(gv('cq-nombre')||'').trim()||'CUOTA',fecha,capital,mesCAC:mes};
+  const q=cuotaId?p.cuotas.find(c=>c.id===cuotaId):null;
+  if(q)Object.assign(q,obj);else p.cuotas.push({id:data.nextId.cuotaplan++,...obj});
+  save();closeModal();renderSubTabCobrosMO();showToast('✓ Cuota guardada');
+}
+function delCuotaMO(planId,cuotaId){
+  const p=getPlanMO(planId);if(!p)return;
+  if(!confirm('¿Borrar esta cuota? Los cobros que tenga quedan en la lista de cobros, sin cuota asignada.'))return;
+  p.cuotas=(p.cuotas||[]).filter(c=>c.id!==cuotaId);
+  (data.fondos||[]).forEach(f=>{if(f.planId===planId&&f.cuotaId===cuotaId){delete f.planId;delete f.cuotaId;}});
+  save();closeModal();renderSubTabCobrosMO();showToast('Cuota eliminada');
+}
+function openModalCobroCuota(oid,planId,cuotaId){
+  const bg=$('modal-bg'),mc=$('modal-content');
+  const p=getPlanMO(planId);if(!p)return;
+  const r=calcPlanMO(p).rows.find(x=>x.c.id===cuotaId);if(!r)return;
+  const pagos=(data.fondos||[]).filter(f=>f.tipo==='mano_obra'&&f.planId===planId&&f.cuotaId===cuotaId);
+  mc.innerHTML=`<h2>Registrar cobro · ${_escH(p.nombre)} · ${_escH(r.c.nombre)}</h2>
+    <div class="modal-hint">Cap + Int: <strong>${fmtARS(r.capInt)}</strong> · Ya cobrado: <strong>${fmtARS(r.pago)}</strong> · Saldo: <strong>${fmtARS(r.saldo)}</strong>${r.estimado?' · <span style="color:#b3541e">índice estimado</span>':''}</div>
+    ${pagos.length?`<div style="font-size:12px;margin-bottom:12px">${pagos.map(f=>`<div style="display:flex;justify-content:space-between;gap:8px;padding:4px 0;border-bottom:1px solid #f0efe8"><span>${_fechaAR(f.fecha)} · ${fmtARS(f.monto)}</span><a href="#" style="color:#c0392b" onclick="delCobroCuota(${f.id},${oid},${planId},${cuotaId});return false">Borrar</a></div>`).join('')}</div>`:''}
+    <div class="form-row2">
+      <div class="form-row"><label>Monto cobrado ($)</label><input id="cb-monto" type="number" value="${r.saldo>=1?Math.round(r.saldo):''}" placeholder="0"></div>
+      <div class="form-row"><label>Fecha de pago</label><input id="cb-fecha" type="date" value="${today()}"></div>
+    </div>
+    <div class="form-row2">
+      <div class="form-row"><label>¿Quién lo recibió?</label><select id="cb-socio"><option value="${MAT}">Matias</option><option value="${IGN}">Ignacio</option></select></div>
+      <div class="form-row"><label>Forma de pago</label><select id="cb-fp"><option value="Efectivo">💵 Efectivo</option><option value="Transferencia">💳 Transferencia</option><option value="Cheque">📋 Cheque</option></select></div>
+    </div>
+    <div class="modal-footer"><button class="btn" onclick="closeModal()">Cerrar</button><button class="btn btn-primary" onclick="saveCobroCuota(${oid},${planId},${cuotaId})">Guardar cobro</button></div>`;
+  bg.classList.add('open');
+}
+function saveCobroCuota(oid,planId,cuotaId){
+  const p=getPlanMO(planId);if(!p)return;
+  const q=(p.cuotas||[]).find(c=>c.id===cuotaId);if(!q)return;
+  const monto=parseFloat(($('cb-monto')||{}).value)||0;if(!monto)return alert('Ingresá el monto');
+  if(!data.fondos)data.fondos=[];
+  if(!data.nextId.fondo)data.nextId.fondo=1;
+  data.fondos.push({id:data.nextId.fondo++,obraId:oid,tipo:'mano_obra',monto,fecha:gv('cb-fecha')||today(),
+    desc:p.nombre+' · '+q.nombre,formaPago:gv('cb-fp')||'Efectivo',socio:gv('cb-socio')||MAT,planId,cuotaId});
+  save();closeModal();renderSubTabCobrosMO();showToast('✓ Cobro registrado');
+}
+function delCobroCuota(fid,oid,planId,cuotaId){
+  if(!confirm('¿Eliminar este cobro?'))return;
+  data.fondos=(data.fondos||[]).filter(f=>f.id!==fid);
+  save();renderSubTabCobrosMO();openModalCobroCuota(oid,planId,cuotaId);
+}
+function openModalCacIndices(mes){
+  const bg=$('modal-bg'),mc=$('modal-content');
+  const t=data.cac_indices||{};
+  const meses=Object.keys(t).filter(m=>t[m]).sort().reverse();
+  mc.innerHTML=`<h2>📊 Índices CAC</h2>
+    <div class="modal-hint">Tabla general: cargás el índice de cada mes una sola vez y se usa en todos los contratistas y obras.</div>
+    <div style="display:flex;gap:8px;align-items:flex-end;margin-bottom:14px">
+      <div class="form-row" style="flex:1;margin:0"><label>Mes</label><input id="ci-mes" type="month" value="${mes||today().slice(0,7)}" onchange="$('ci-valor').value=(data.cac_indices||{})[this.value]||''"></div>
+      <div class="form-row" style="flex:1;margin:0"><label>Índice</label><input id="ci-valor" type="number" step="0.01" value="${(mes&&t[mes])||''}" placeholder="Ej: 20167.90"></div>
+      <button class="btn btn-primary" onclick="saveCacIndice()">Guardar</button>
+    </div>
+    ${meses.length?`<div style="max-height:260px;overflow-y:auto"><table style="font-size:12px;width:100%"><thead><tr><th>Mes</th><th style="text-align:right">Índice</th><th style="text-align:right">Var. mes</th><th></th></tr></thead><tbody>
+      ${meses.map(m=>{const ant=t[_mesSuma(m,-1)];return `<tr><td style="font-weight:600">${_mesNombre(m)}</td><td style="text-align:right">${_fmtIdx(t[m])}</td><td style="text-align:right;color:#888">${ant?((t[m]/ant-1)*100).toFixed(2)+'%':'—'}</td>
+        <td><div class="row-actions"><button class="btn btn-sm btn-edit" onclick="openModalCacIndices('${m}')">Editar</button><button class="btn btn-sm btn-danger" onclick="delCacIndice('${m}')">Borrar</button></div></td></tr>`;}).join('')}
+    </tbody></table></div>`:'<div class="empty">Todavía no hay índices cargados.</div>'}
+    <div class="modal-footer"><button class="btn" onclick="closeModal()">Cerrar</button></div>`;
+  bg.classList.add('open');
+}
+function saveCacIndice(){
+  const mes=gv('ci-mes');if(!/^\d{4}-\d{2}$/.test(mes||''))return alert('Elegí el mes');
+  const v=parseFloat(($('ci-valor')||{}).value)||0;if(!v)return alert('Ingresá el índice');
+  if(!data.cac_indices)data.cac_indices={};
+  data.cac_indices[mes]=v;
+  save();renderSubTabCobrosMO();openModalCacIndices('');showToast('✓ CAC de '+_mesNombre(mes)+' guardado');
+}
+function delCacIndice(mes){
+  const usado=(data.planes_mo||[]).some(p=>p.tipoAjuste==='cac'&&p.mesBase===mes);
+  if(!confirm('¿Borrar el índice de '+_mesNombre(mes)+'?'+(usado?' Es el mes BASE de algún plan: ese plan va a dejar de calcular intereses hasta que lo vuelvas a cargar.':'')))return;
+  delete data.cac_indices[mes];
+  save();renderSubTabCobrosMO();openModalCacIndices('');
+}
+
 function delFondoCobroMO(id){
   if(!confirm('¿Eliminar este cobro?'))return;
   data.fondos=(data.fondos||[]).filter(f=>f.id!==id);
   save();renderSubTabCobrosMO();showToast('Eliminado');
 }
 
+function irASolapaObra(id){
+  cajaSubTab=id;window._ccFiltro='todos';
+  marcarSolapaObra();
+  renderCajaSubTab();
+}
+// Marca la solapa activa (también cuando se cambia de solapa desde otro lado, ej. al guardar un gasto)
+function marcarSolapaObra(){
+  const bar=$('obra-tabs');if(!bar)return;
+  bar.querySelectorAll('.obra-tab').forEach(b=>{
+    const on=b.dataset.tab===cajaSubTab;
+    b.classList.toggle('active',on);
+    if(on)bar.style.setProperty('--tabc',b.dataset.color);
+  });
+}
 function renderCajaSubTab(){
+  marcarSolapaObra();
   if(cajaSubTab==='cc')           renderSubTabCC();
   else if(cajaSubTab==='mo')           renderSubTabMO();
   else if(cajaSubTab==='cobrosmo')     renderSubTabCobrosMO();
@@ -1997,6 +2359,8 @@ function renderSubTabMO(){
     }
   });
 
+  const _ctr=renderContratistasMO(oid,filtro,moMovs);
+
   const filtrosBtns=`<div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:10px;align-items:center">
     <span style="font-size:11px;color:#888;font-weight:600;text-transform:uppercase;letter-spacing:.4px">Filtrar:</span>
     <button class="btn btn-sm" style="${filtro==='todos'?'background:#1a6ef5;color:#fff;border-color:#1a6ef5':'background:#f0f4ff;color:#1a6ef5;border:1px solid #c0d8fa'}" onclick="window._moFiltro='todos';renderSubTabMO()">Todos</button>
@@ -2008,7 +2372,7 @@ function renderSubTabMO(){
     <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;margin-bottom:14px">
       <div>
         <div style="font-size:13px;font-weight:700;color:#1a6ef5">👷 Mano de obra</div>
-        <div style="font-size:11px;color:#aaa;margin-top:2px">Presupuesto por rubro · Pagos a gremios · Ganancia</div>
+        <div style="font-size:11px;color:#aaa;margin-top:2px">Presupuesto de contratistas · Trabajos extras · Pagos realizados · Saldo</div>
       </div>
       <div class="row-actions">
         <button class="btn btn-sm btn-primary" onclick="openModal('ingreso-mo',${oid})">+ Registrar pago</button>
@@ -2018,8 +2382,16 @@ function renderSubTabMO(){
       </div>
     </div>
 
-    <!-- Métricas globales -->
-    <div style="display:flex;flex-wrap:wrap;gap:10px;margin-bottom:18px">
+    ${_ctr.resumen}
+    ${_ctr.seccion}
+    <!-- Movimientos -->
+    <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:#555;margin-bottom:8px">💸 Pagos realizados${filtro!=='todos'?' · '+filtro:''} <span style="color:#c0392b">· ${fmtARS(_ctr.totalPagos)}</span></div>
+    ${filtrosBtns}
+    ${moFiltrados.length?`<div style="overflow-x:auto"><table style="font-size:12px"><thead><tr>
+      <th>Fecha</th><th>Tipo</th><th>Gremio</th><th>Rubro</th><th>Quién</th><th>F.Pago</th><th>Monto</th><th>Obs.</th><th></th>
+    </tr></thead><tbody>${rowsMO}</tbody></table></div>`:'<div class="empty">Sin movimientos registrados.</div>'}
+    <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:#555;margin:22px 0 8px">Fondos del cliente y ganancia</div>
+    <div style="display:flex;flex-wrap:wrap;gap:10px;margin-bottom:4px">
       <div class="metric" style="flex:1;min-width:120px;background:#e8f0fe;border:1px solid #c0d8fa">
         <div class="metric-label" style="color:#1a6ef5">Fondos recibidos</div>
         <div class="metric-value blue">${fmtARS(totFMO)}</div>
@@ -2047,7 +2419,7 @@ function renderSubTabMO(){
     <!-- Tabla de rubros -->
     ${(()=>{
       if(!todosRubros.length){
-        return '<div style="margin-bottom:14px;display:flex;flex-wrap:wrap;gap:6px;align-items:center"><span style="font-size:11px;color:#aaa">Presupuestar rubro:</span>'
+        return '<div style="margin:20px 0 14px;display:flex;flex-wrap:wrap;gap:6px;align-items:center"><span style="font-size:11px;color:#aaa">Agregar precio al cliente:</span>'
           +RUBROS_MO.map(r=>'<button class="btn btn-sm" style="background:#eaf1fe;color:#1a6ef5;border:1px solid #c0d8fa;font-size:11px" onclick="openModalPresupRubro('+oid+',\''+r+'\')">+ '+r+'</button>').join('')
           +'</div>';
       }
@@ -2060,11 +2432,11 @@ function renderSubTabMO(){
           +'<td colspan="2"></td></tr></tfoot>'
         :'';
       const addBtns=rubrosRestantes.length
-        ?'<div style="margin-bottom:16px;display:flex;flex-wrap:wrap;gap:6px;align-items:center"><span style="font-size:11px;color:#aaa">Agregar presupuesto:</span>'
+        ?'<div style="margin-bottom:16px;display:flex;flex-wrap:wrap;gap:6px;align-items:center"><span style="font-size:11px;color:#aaa">Agregar precio al cliente:</span>'
           +rubrosRestantes.map(r=>'<button class="btn btn-sm" style="background:#eaf1fe;color:#1a6ef5;border:1px solid #c0d8fa;font-size:11px" onclick="openModalPresupRubro('+oid+',\''+r+'\')">+ '+r+'</button>').join('')
           +'</div>'
         :'';
-      return '<div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:#555;margin-bottom:8px">Desglose por rubro</div>'
+      return '<div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:#555;margin:20px 0 8px">💰 Precio al cliente y ganancia por rubro</div>'
         +'<div style="overflow-x:auto;margin-bottom:18px"><table style="font-size:12px;width:100%">'
         +'<thead><tr><th>Rubro</th><th style="text-align:right;color:#1a7a4a">💰 Precio al CLIENTE</th><th style="text-align:right;color:#c0392b">🔧 Costo PROVEEDOR</th><th style="text-align:right">✨ Ganancia</th><th>Avance</th><th></th></tr></thead>'
         +'<tbody>'+rubroRows+'</tbody>'
@@ -2072,14 +2444,208 @@ function renderSubTabMO(){
         +'</table></div>'
         +addBtns;
     })()}
-
-    <!-- Movimientos -->
-    <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:#555;margin-bottom:8px">Movimientos</div>
-    ${filtrosBtns}
-    ${moFiltrados.length?`<div style="overflow-x:auto"><table style="font-size:12px"><thead><tr>
-      <th>Fecha</th><th>Tipo</th><th>Gremio</th><th>Rubro</th><th>Quién</th><th>F.Pago</th><th>Monto</th><th>Obs.</th><th></th>
-    </tr></thead><tbody>${rowsMO}</tbody></table></div>`:'<div class="empty">Sin movimientos registrados.</div>'}
   </div>`;
+}
+
+// ── CONTRATISTAS MO: presupuesto del contratista + trabajos extras + pagos + saldo ──
+function _jsq(s){return String(s==null?'':s).replace(/\\/g,'\\\\').replace(/'/g,"\\'").replace(/"/g,'&quot;');}
+function _escH(s){return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');}
+function getPresupContr(oid,rubro){return (data.presup_contratistas||[]).find(p=>p.obraId===oid&&p.rubro===rubro)||null;}
+function getExtrasMO(oid,rubro){return (data.extras_mo||[]).filter(e=>e.obraId===oid&&(!rubro||e.rubro===rubro));}
+function rubrosParaContratista(){
+  return [...new Set([...RUBROS_MO,...(data.rubrosExtra||[]),...getRubrosTodos()])].filter(Boolean).sort((a,b)=>a.localeCompare(b,'es'));
+}
+function renderContratistasMO(oid,filtro,moMovs){
+  const pagos=moMovs.filter(m=>m.tipoGasto!=='proyectado');
+  const pagadoX={};
+  pagos.forEach(m=>{const r=m.rubro||'Sin rubro';pagadoX[r]=(pagadoX[r]||0)+m.monto;});
+  let rubros=[...new Set([
+    ...(data.presup_contratistas||[]).filter(p=>p.obraId===oid).map(p=>p.rubro),
+    ...getExtrasMO(oid).map(e=>e.rubro),
+    ...Object.keys(pagadoX)
+  ])].sort((a,b)=>a.localeCompare(b,'es'));
+  if(filtro!=='todos')rubros=[filtro];
+  let tP=0,tE=0,tPag=0,nExtras=0,sinPresup=0,rows='';
+  rubros.forEach(r=>{
+    const pc=getPresupContr(oid,r);
+    const presup=pc?pc.monto:0;
+    const extras=getExtrasMO(oid,r).slice().sort((a,b)=>(a.fecha||'').localeCompare(b.fecha||''));
+    const totExtras=extras.reduce((a,e)=>a+e.monto,0);
+    const pagado=pagadoX[r]||0;
+    const total=presup+totExtras;
+    const saldo=total-pagado;
+    tP+=presup;tE+=totExtras;tPag+=pagado;nExtras+=extras.length;
+    if(!total&&pagado)sinPresup+=pagado;
+    const pct=total?Math.round(pagado/total*100):0;
+    const saldoCol=!total?'#aaa':saldo<0?'#c0392b':saldo===0?'#1a7a4a':'#b3541e';
+    rows+=`<tr style="border-top:2px solid #e3e1d8">
+      <td style="font-weight:700">${_escH(r)}${pc&&pc.contratista?`<div style="font-size:11px;font-weight:400;color:#888">👷 ${_escH(pc.contratista)}</div>`:''}</td>
+      <td style="text-align:right">${presup?`<span style="font-weight:700;color:#1a6ef5">${fmtARS(presup)}</span>`:'<span style="color:#bbb;font-style:italic">Sin cargar</span>'}</td>
+      <td style="text-align:right;font-weight:600;color:#6c3fc5">${totExtras?fmtARS(totExtras):'<span style="color:#ccc">—</span>'}</td>
+      <td style="text-align:right;font-weight:700">${total?fmtARS(total):'<span style="color:#ccc">—</span>'}</td>
+      <td style="text-align:right;font-weight:600;color:#c0392b">${fmtARS(pagado)}${total?`<div style="font-size:10px;color:#aaa;font-weight:400">${pct}% pagado</div>`:''}</td>
+      <td style="text-align:right;font-weight:700;color:${saldoCol}">${total?fmtARS(saldo):'<span style="font-weight:400;font-style:italic;font-size:11px">sin presupuesto</span>'}</td>
+      <td><div class="row-actions">
+        <button class="btn btn-sm btn-edit" onclick="openModalPresupContr(${oid},'${_jsq(r)}')">${presup?'✏ Presupuesto':'+ Presupuesto'}</button>
+        <button class="btn btn-sm" style="background:#f3effe;color:#6c3fc5;border:1px solid #d4bdf0" onclick="openModalExtraMO(${oid},'${_jsq(r)}',0)">+ Extra</button>
+      </div></td>
+    </tr>`;
+    extras.forEach(e=>{
+      rows+=`<tr style="background:#faf7ff">
+        <td style="padding-left:22px;color:#6c3fc5;font-size:11px">↳ Trabajo extra${e.fecha?` · ${e.fecha}`:''}</td>
+        <td colspan="1" style="font-size:12px">${_escH(e.desc||'Sin descripción')}${e.obs?`<div style="font-size:11px;color:#aaa">${_escH(e.obs)}</div>`:''}</td>
+        <td style="text-align:right;font-weight:600;color:#6c3fc5">${fmtARS(e.monto)}</td>
+        <td colspan="3"></td>
+        <td><div class="row-actions">
+          <button class="btn btn-sm btn-edit" onclick="openModalExtraMO(${oid},'${_jsq(r)}',${e.id})">Editar</button>
+          <button class="btn btn-sm btn-danger" onclick="delExtraMO(${e.id})">Borrar</button>
+        </div></td>
+      </tr>`;
+    });
+  });
+  const tTotal=tP+tE, tSaldo=tTotal-tPag;
+  const sCol=!tTotal?'#999':tSaldo<0?'#c0392b':tSaldo===0?'#1a7a4a':'#b3541e';
+  const sBg=!tTotal?'#f5f4f0':tSaldo<0?'#fdf0ef':tSaldo===0?'#f0faf3':'#fff4ea';
+  const sTxt=!tTotal?'Cargá el presupuesto del contratista':tSaldo<0?'Pagaste de más':tSaldo===0?'Saldado':'Falta pagarle al contratista';
+  const alcance=filtro==='todos'?'todos los rubros':_escH(filtro);
+  const tituloPresup=filtro==='todos'?'Presupuesto general':'Presupuesto '+_escH(filtro);
+  const tPct=tTotal?Math.round(tPag/tTotal*100):0;
+  const pCol=tPct>100?'#c0392b':tPct===100?'#1a7a4a':'#1a6ef5';
+  const resumen=`
+    <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:#555;margin-bottom:8px">${tituloPresup} <span style="font-weight:400;color:#999">· ${filtro==='todos'?'todos los contratistas':'resumen del contratista'}</span></div>
+    <div style="display:flex;flex-wrap:wrap;gap:10px;margin-bottom:${tTotal?'8px':'18px'}">
+      <div class="metric" style="flex:1;min-width:150px;background:#e8f0fe;border:1px solid #c0d8fa">
+        <div class="metric-label" style="color:#1a6ef5">📋 ${tituloPresup}</div>
+        <div class="metric-value blue" style="font-size:22px">${tP?fmtARS(tP):'<span style="font-size:13px;color:#9bb">Sin cargar</span>'}</div>
+      </div>
+      <div class="metric" style="flex:1;min-width:150px;background:#f3effe;border:1px solid #d4bdf0">
+        <div class="metric-label" style="color:#6c3fc5">➕ Trabajos extras</div>
+        <div class="metric-value" style="font-size:22px;color:#6c3fc5">${fmtARS(tE)}</div>
+        <div style="font-size:10px;color:#aaa;margin-top:2px">${nExtras} extra${nExtras===1?'':'s'} cargado${nExtras===1?'':'s'}</div>
+      </div>
+      <div class="metric" style="flex:1;min-width:150px;background:#fff;border:2px solid #1a1a1a">
+        <div class="metric-label" style="color:#1a1a1a">Σ Presupuesto + Extras</div>
+        <div class="metric-value" style="font-size:22px;color:#1a1a1a">${tTotal?fmtARS(tTotal):'—'}</div>
+        <div style="font-size:10px;color:#aaa;margin-top:2px">Total a pagar al contratista</div>
+      </div>
+      <div class="metric" style="flex:1;min-width:150px;background:#fdf0ef;border:1px solid #f5c6c2">
+        <div class="metric-label" style="color:#c0392b">💸 Pagos realizados</div>
+        <div class="metric-value red" style="font-size:22px">${fmtARS(tPag)}</div>
+        <div style="font-size:10px;color:#aaa;margin-top:2px">${tTotal?tPct+'% del total':'Sin presupuesto para comparar'}</div>
+      </div>
+      <div class="metric" style="flex:1;min-width:170px;background:${sBg};border:2px solid ${sCol}">
+        <div class="metric-label" style="color:${sCol}">Saldo</div>
+        <div class="metric-value" style="font-size:24px;color:${sCol}">${tTotal?fmtARS(tSaldo):'—'}</div>
+        <div style="font-size:10px;color:#888;margin-top:2px">Total − Pagos · ${sTxt}</div>
+      </div>
+    </div>
+    ${tTotal?`<div style="background:#fff;border:1px solid #d9e4f7;border-radius:8px;padding:10px 14px;margin-bottom:${sinPresup?'6px':'18px'}">
+      <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:6px">
+        <span style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:#555">Avance de pagos</span>
+        <span style="font-size:18px;font-weight:700;color:${pCol}">${tPct}%</span>
+      </div>
+      <div style="background:#f0efe8;border-radius:6px;height:12px;overflow:hidden"><div style="height:12px;border-radius:6px;background:${pCol};width:${Math.min(tPct,100)}%"></div></div>
+      <div style="display:flex;justify-content:space-between;font-size:10px;color:#888;margin-top:4px">
+        <span>Pagado ${fmtARS(tPag)} de ${fmtARS(tTotal)}</span>
+        <span>${tSaldo>0?'Resta '+fmtARS(tSaldo)+' ('+(100-tPct)+'%)':tSaldo===0?'Saldado':'Excedido en '+fmtARS(-tSaldo)}</span>
+      </div>
+    </div>`:''}
+    ${sinPresup&&tTotal?`<div style="font-size:11px;color:#b3541e;margin-bottom:18px">⚠ Hay ${fmtARS(sinPresup)} pagados en rubros que todavía no tienen presupuesto de contratista cargado; por eso el saldo puede dar más bajo de lo real.</div>`:''}`;
+  const seccion=`
+    <div style="background:#fff;border:1px solid #d9e4f7;border-radius:10px;padding:14px;margin-bottom:18px">
+      <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;margin-bottom:10px">
+        <div>
+          <div style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:#1a6ef5">📋 ${filtro==='todos'?'Presupuesto general · contratistas y trabajos extras':tituloPresup+' · y trabajos extras'}</div>
+          <div style="font-size:11px;color:#aaa;margin-top:2px">Lo acordado con cada contratista por rubro, más los adicionales</div>
+        </div>
+        <div class="row-actions">
+          <button class="btn btn-sm btn-primary" onclick="openModalPresupContr(${oid},'${filtro==='todos'?'':_jsq(filtro)}')">+ Presupuesto contratista</button>
+          <button class="btn btn-sm" style="background:#6c3fc5;color:#fff;border-color:#6c3fc5" onclick="openModalExtraMO(${oid},'${filtro==='todos'?'':_jsq(filtro)}',0)">+ Trabajo extra</button>
+        </div>
+      </div>
+      ${rows?`<div style="overflow-x:auto"><table style="font-size:12px;width:100%">
+        <thead><tr><th>Rubro / Contratista</th><th style="text-align:right;color:#1a6ef5">Presupuesto</th><th style="text-align:right;color:#6c3fc5">Extras</th><th style="text-align:right">Total a pagar</th><th style="text-align:right;color:#c0392b">Pagado</th><th style="text-align:right">Saldo</th><th></th></tr></thead>
+        <tbody>${rows}</tbody>
+        ${rubros.length>1?`<tfoot><tr style="border-top:2px solid #c0d8fa;font-weight:700;background:#e8f0fe">
+          <td style="padding:8px">TOTAL</td>
+          <td style="padding:8px;text-align:right;color:#1a6ef5">${fmtARS(tP)}</td>
+          <td style="padding:8px;text-align:right;color:#6c3fc5">${fmtARS(tE)}</td>
+          <td style="padding:8px;text-align:right">${fmtARS(tTotal)}</td>
+          <td style="padding:8px;text-align:right;color:#c0392b">${fmtARS(tPag)}</td>
+          <td style="padding:8px;text-align:right;color:${sCol};font-size:14px">${fmtARS(tSaldo)}</td>
+          <td></td></tr></tfoot>`:''}
+      </table></div>`:'<div class="empty">Todavía no hay presupuestos de contratistas. Usá "+ Presupuesto contratista" para cargar el primero.</div>'}
+    </div>`;
+  return {resumen,seccion,totalPagos:tPag};
+}
+function _rubroSelectContr(id,sel){
+  return `<select id="${id}"><option value="">— Seleccionar rubro —</option>${rubrosParaContratista().map(r=>`<option value="${_escH(r)}"${r===sel?' selected':''}>${_escH(r)}</option>`).join('')}</select>`;
+}
+function openModalPresupContr(oid,rubro){
+  const bg=$('modal-bg'),mc=$('modal-content');
+  const ex=rubro?getPresupContr(oid,rubro):null;
+  mc.innerHTML=`<h2>${ex?'Editar':'Cargar'} presupuesto del contratista</h2>
+    <div class="modal-hint">Lo que acordaste pagarle al contratista por este rubro. Los adicionales se cargan aparte como "Trabajo extra".</div>
+    <div class="form-row"><label>Rubro</label>${ex?`<div style="font-size:15px;font-weight:700;color:#1a6ef5">👷 ${_escH(rubro)}</div><input type="hidden" id="pc-rubro" value="${_escH(rubro)}">`:_rubroSelectContr('pc-rubro',rubro)}</div>
+    <div class="form-row2">
+      <div class="form-row"><label>Contratista (opcional)</label><input id="pc-contratista" value="${_escH(ex?ex.contratista||'':'')}" placeholder="Ej: EDSON, Plomero Juan..."></div>
+      <div class="form-row"><label>Presupuesto ($)</label><input id="pc-monto" type="number" value="${ex?ex.monto:''}" placeholder="0"></div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn" onclick="closeModal()">Cancelar</button>
+      ${ex?`<button class="btn btn-danger" onclick="delPresupContr(${oid},'${_jsq(rubro)}')">Borrar</button>`:''}
+      <button class="btn btn-primary" onclick="savePresupContr(${oid})">Guardar</button>
+    </div>`;
+  bg.classList.add('open');
+}
+function savePresupContr(oid){
+  const rubro=gv('pc-rubro');if(!rubro)return alert('Seleccioná un rubro');
+  const monto=parseFloat(($('pc-monto')||{}).value)||0;if(!monto)return alert('Ingresá el presupuesto');
+  if(!data.presup_contratistas)data.presup_contratistas=[];
+  const contratista=(gv('pc-contratista')||'').trim();
+  const ex=getPresupContr(oid,rubro);
+  if(ex){ex.monto=monto;ex.contratista=contratista;}
+  else data.presup_contratistas.push({obraId:oid,rubro,monto,contratista});
+  save();closeModal();renderSubTabMO();showToast('✓ Presupuesto del contratista guardado');
+}
+function delPresupContr(oid,rubro){
+  if(!confirm('¿Eliminar el presupuesto del contratista de este rubro? Los trabajos extras y los pagos no se borran.'))return;
+  data.presup_contratistas=(data.presup_contratistas||[]).filter(p=>!(p.obraId===oid&&p.rubro===rubro));
+  save();closeModal();renderSubTabMO();showToast('Eliminado');
+}
+function openModalExtraMO(oid,rubro,id){
+  const bg=$('modal-bg'),mc=$('modal-content');
+  const e=id?(data.extras_mo||[]).find(x=>x.id===id)||{}:{};
+  mc.innerHTML=`<h2>${id?'Editar':'+'} trabajo extra</h2>
+    <div class="modal-hint">Un adicional que se suma al presupuesto del contratista. Podés cargar todos los que necesites.</div>
+    <div class="form-row"><label>Rubro</label>${_rubroSelectContr('ex-rubro',e.rubro||rubro)}</div>
+    <div class="form-row"><label>Descripción del trabajo</label><input id="ex-desc" value="${_escH(e.desc||'')}" placeholder="Ej: Revoque medianera, pared adicional..."></div>
+    <div class="form-row2">
+      <div class="form-row"><label>Monto ($)</label><input id="ex-monto" type="number" value="${e.monto||''}" placeholder="0"></div>
+      <div class="form-row"><label>Fecha</label><input id="ex-fecha" type="date" value="${e.fecha||today()}"></div>
+    </div>
+    <div class="form-row"><label>Observación (opcional)</label><input id="ex-obs" value="${_escH(e.obs||'')}"></div>
+    <div class="modal-footer">
+      <button class="btn" onclick="closeModal()">Cancelar</button>
+      <button class="btn btn-primary" onclick="saveExtraMO(${oid},${id||0})">Guardar</button>
+    </div>`;
+  bg.classList.add('open');
+}
+function saveExtraMO(oid,id){
+  const rubro=gv('ex-rubro');if(!rubro)return alert('Seleccioná un rubro');
+  const monto=parseFloat(($('ex-monto')||{}).value)||0;if(!monto)return alert('Ingresá el monto');
+  if(!data.extras_mo)data.extras_mo=[];
+  if(!data.nextId.extramo)data.nextId.extramo=1;
+  const obj={obraId:oid,rubro,desc:(gv('ex-desc')||'').trim(),monto,fecha:gv('ex-fecha')||today(),obs:(gv('ex-obs')||'').trim()};
+  const ex=id?data.extras_mo.find(x=>x.id===id):null;
+  if(ex)Object.assign(ex,obj);
+  else data.extras_mo.push({id:data.nextId.extramo++,...obj});
+  save();closeModal();renderSubTabMO();showToast('✓ Trabajo extra guardado');
+}
+function delExtraMO(id){
+  if(!confirm('¿Eliminar este trabajo extra?'))return;
+  data.extras_mo=(data.extras_mo||[]).filter(e=>e.id!==id);
+  save();renderSubTabMO();showToast('Eliminado');
 }
 
 function openModalPresupRubro(oid, rubro){
@@ -3027,6 +3593,8 @@ function guardarRenombreRubro(oldName){
   data.rubrosTodos=getRubrosTodos().map(r=>r===oldName?nuevo:r);
   data.caja.forEach(m=>{if(m.rubro===oldName)m.rubro=nuevo;});
   (data.presupuesto_rubros||[]).forEach(p=>{if(p.rubro===oldName)p.rubro=nuevo;});
+  (data.presup_contratistas||[]).forEach(p=>{if(p.rubro===oldName)p.rubro=nuevo;});
+  (data.extras_mo||[]).forEach(p=>{if(p.rubro===oldName)p.rubro=nuevo;});
   (data.presupuesto_gasto_rubro||[]).forEach(p=>{if(p.rubro===oldName)p.rubro=nuevo;});
   (data.presupuesto_proyectado_rubro||[]).forEach(p=>{if(p.rubro===oldName)p.rubro=nuevo;});
   (data.pagos_directos||[]).forEach(p=>{if(p.rubro===oldName)p.rubro=nuevo;});
@@ -3038,6 +3606,8 @@ function guardarRenombreRubro(oldName){
 function eliminarRubroGlobal(rubro){
   const enUso = data.caja.some(m=>m.rubro===rubro)
     || (data.presupuesto_rubros||[]).some(p=>p.rubro===rubro)
+    || (data.presup_contratistas||[]).some(p=>p.rubro===rubro)
+    || (data.extras_mo||[]).some(p=>p.rubro===rubro)
     || (data.presupuesto_gasto_rubro||[]).some(p=>p.rubro===rubro)
     || (data.presupuesto_proyectado_rubro||[]).some(p=>p.rubro===rubro)
     || (data.pagos_directos||[]).some(p=>p.rubro===rubro);
