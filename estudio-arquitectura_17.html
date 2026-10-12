@@ -518,6 +518,7 @@ let data={
   presup_contratistas:[],
   extras_mo:[],
   planes_mo:[],
+  items_mo:[],
   cac_indices:{},
   presupuesto_gasto_rubro:[],
   presupuesto_proyectado_rubro:[],
@@ -782,6 +783,7 @@ function fixData(){
   if(!data.extras_mo)data.extras_mo=[];
   if(!data.planes_mo)data.planes_mo=[];
   if(!data.cac_indices)data.cac_indices={};
+  if(!data.items_mo)data.items_mo=[];
   if(!data.rubrosCC)data.rubrosCC=[];
   if(!data.rubrosTodos||!data._rubrosMigrados){
     const seed=new Set([
@@ -2314,7 +2316,7 @@ function renderSubTabMO(){
       const we=getWeekEndMO(m.fecha);
       const wtot=weekTotalsMO[wk]||0;
       rowsMO+=`<tr style="border-top:3px solid #1a6ef5;background:transparent;pointer-events:none">
-        <td colspan="9" style="padding:4px 8px;border-bottom:none;border-top:none">
+        <td colspan="10" style="padding:4px 8px;border-bottom:none;border-top:none">
           <span style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.6px;color:#1a6ef5;background:#eaf1fe;padding:2px 8px;border-radius:4px;border:1px solid #c0d8fa">
             📅 Semana del ${ws} al ${we}${wtot?` · Pagado: <strong>${fmtARS(wtot)}</strong>`:''}
           </span>
@@ -2325,7 +2327,7 @@ function renderSubTabMO(){
       const we=getWeekEndMO(m.fecha);
       const wtot=weekTotalsMO[wk]||0;
       rowsMO+=`<tr style="background:transparent;pointer-events:none">
-        <td colspan="9" style="padding:4px 8px;border-bottom:none">
+        <td colspan="10" style="padding:4px 8px;border-bottom:none">
           <span style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.6px;color:#1a6ef5;background:#eaf1fe;padding:2px 8px;border-radius:4px;border:1px solid #c0d8fa">
             📅 Semana del ${ws} al ${we}${wtot?` · Pagado: <strong>${fmtARS(wtot)}</strong>`:''}
           </span>
@@ -2336,7 +2338,7 @@ function renderSubTabMO(){
     if(m._tipo==='fondo'){
       rowsMO+=`<tr style="background:#f0f5ff">
         <td>${m.fecha}</td><td><span class="badge badge-green">+ Cliente</span></td>
-        <td colspan="3">${m.desc||'Fondos recibidos'} <span style="font-size:11px;color:#888">(${m.socio===MAT?'Matias':'Ignacio'})</span></td>
+        <td colspan="4">${m.desc||'Fondos recibidos'} <span style="font-size:11px;color:#888">(${m.socio===MAT?'Matias':'Ignacio'})</span></td>
         <td>${fpBadge(m.formaPago)}</td>
         <td style="font-weight:600;color:#1a7a4a">${fmtARS(m.monto)}</td><td></td>
         <td><div class="row-actions">
@@ -2348,6 +2350,7 @@ function renderSubTabMO(){
         <td>${m.fecha}</td><td><span class="badge badge-red">− Pago</span></td>
         <td><strong>${m.item||'—'}</strong></td>
         <td><span style="background:#e8f0fe;color:#1a6ef5;padding:2px 7px;border-radius:20px;font-size:11px;font-weight:600">${m.rubro||'—'}</span></td>
+        <td style="font-size:12px">${nombreItemMO(m)?_escH(nombreItemMO(m)):'<span style="color:#ccc">—</span>'}</td>
         <td class="${socioClass(m.socio)}" style="font-size:12px">${m.socio===MAT?'Matias':'Ignacio'}</td>
         <td>${fpBadge(m.formaPago)}</td>
         <td style="font-weight:600;color:#c0392b">${fmtARS(m.monto)}</td>
@@ -2387,8 +2390,9 @@ function renderSubTabMO(){
     <!-- Movimientos -->
     <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:#555;margin-bottom:8px">💸 Pagos realizados${filtro!=='todos'?' · '+filtro:''} <span style="color:#c0392b">· ${fmtARS(_ctr.totalPagos)}</span></div>
     ${filtrosBtns}
+    ${filtro!=='todos'?renderItemsMOResumen(oid,filtro,moMovs):''}
     ${moFiltrados.length?`<div style="overflow-x:auto"><table style="font-size:12px"><thead><tr>
-      <th>Fecha</th><th>Tipo</th><th>Gremio</th><th>Rubro</th><th>Quién</th><th>F.Pago</th><th>Monto</th><th>Obs.</th><th></th>
+      <th>Fecha</th><th>Tipo</th><th>Gremio</th><th>Rubro</th><th>Ítem</th><th>Quién</th><th>F.Pago</th><th>Monto</th><th>Obs.</th><th></th>
     </tr></thead><tbody>${rowsMO}</tbody></table></div>`:'<div class="empty">Sin movimientos registrados.</div>'}
     <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:#555;margin:22px 0 8px">Fondos del cliente y ganancia</div>
     <div style="display:flex;flex-wrap:wrap;gap:10px;margin-bottom:4px">
@@ -3595,6 +3599,7 @@ function guardarRenombreRubro(oldName){
   (data.presupuesto_rubros||[]).forEach(p=>{if(p.rubro===oldName)p.rubro=nuevo;});
   (data.presup_contratistas||[]).forEach(p=>{if(p.rubro===oldName)p.rubro=nuevo;});
   (data.extras_mo||[]).forEach(p=>{if(p.rubro===oldName)p.rubro=nuevo;});
+  (data.items_mo||[]).forEach(p=>{if(p.rubro===oldName)p.rubro=nuevo;});
   (data.presupuesto_gasto_rubro||[]).forEach(p=>{if(p.rubro===oldName)p.rubro=nuevo;});
   (data.presupuesto_proyectado_rubro||[]).forEach(p=>{if(p.rubro===oldName)p.rubro=nuevo;});
   (data.pagos_directos||[]).forEach(p=>{if(p.rubro===oldName)p.rubro=nuevo;});
@@ -3829,10 +3834,17 @@ function openModal(tipo,extra,editId){
         <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px"><button type="button" class="btn" style="padding:10px;font-size:12px;background:#fff8ec;color:#8a6400;border:1px solid #f0d898" onclick="cambiarDestinoGasto(${oid},'cc',${editId||0})">🧾 Caja chica</button><button type="button" class="btn" style="padding:10px;font-size:12px;background:#1a6ef5;color:#fff;border:1px solid #1a6ef5">👷 Mano de obra ✓</button></div>
       </div>
       <div class="form-row"><label>Gremio / Rubro</label>
-        <select id="f-rubro">${rubrosOpts}</select>
+        <select id="f-rubro" onchange="refreshItemsMOSelect(${oid})">${rubrosOpts}</select>
         <div style="display:flex;gap:6px;margin-top:6px">
           <input id="f-rubro-nuevo" placeholder="Agregar rubro personalizado..." style="flex:1;padding:6px 10px;border-radius:8px;border:1px solid #d0cfc8;font-size:12px">
           <button type="button" class="btn btn-sm" onclick="agregarRubroExtra()">+ Agregar</button>
+        </div>
+      </div>
+      <div class="form-row"><label>Ítem / trabajo <span id="f-itemmo-rubro" style="font-weight:400;color:#1a6ef5"></span></label>
+        <select id="f-itemmo"><option value="">— Sin ítem —</option></select>
+        <div style="display:flex;gap:6px;margin-top:6px">
+          <input id="f-itemmo-nuevo" placeholder="Agregar ítem a este rubro (ej: Puerta de acceso)..." style="flex:1;padding:6px 10px;border-radius:8px;border:1px solid #d0cfc8;font-size:12px" onkeydown="if(event.key==='Enter'){event.preventDefault();agregarItemMODesdeForm(${oid})}">
+          <button type="button" class="btn btn-sm" onclick="agregarItemMODesdeForm(${oid})">+ Agregar</button>
         </div>
       </div>
       <div class="form-row2">
@@ -3851,6 +3863,7 @@ function openModal(tipo,extra,editId){
       <div class="form-row"><label>Observación</label><input id="f-obs" value="${m.obs||''}" placeholder="Ej: ADELANTO, SALDO..."></div>
       <div class="modal-footer"><button class="btn" onclick="closeModal()">Cancelar</button><button class="btn btn-primary" onclick="savePagoMO(${oid},${editId||0})">Guardar</button></div>
     </div>`;
+    setTimeout(()=>refreshItemsMOSelect(oid,m.itemMOId||0),0);
   }
   else if(tipo==='editar-fondo-cc'||tipo==='editar-fondo-mo'){
     // Editar fondo del cliente (caja chica o mano de obra) — con cambio de propósito
@@ -4191,7 +4204,7 @@ function cambiarDestinoGasto(oid,dest,eid){
   abrirGastoEnCaja(oid,dest,eid,vals);
 }
 
-function closeModal(){$('modal-bg').classList.remove('open');}
+function closeModal(){$('modal-bg').classList.remove('open');const mc=$('modal-content');if(mc){mc.style.maxWidth='';mc.style.width='';}}
 function closeModalBg(e){if(e.target===$('modal-bg'))closeModal();}
 document.addEventListener('keydown',e=>{if(e.key==='Escape')closeModal();});
 
@@ -4593,9 +4606,13 @@ function savePagoMO(oid,eid){
     socio:gv('f-socio')||MAT,
     item:gv('f-item')||'',
     rubro,obs:gv('f-obs')||'',
+    itemMOId:parseInt(gv('f-itemmo'))||0,
+    itemMONombre:'',
     monto,valorDolar:0,
     formaPago:gv('f-fp')||'Efectivo'};
-  if(eid){Object.assign(data.caja.find(x=>x.id===eid),obj);}
+  if(obj.itemMOId){const it=(data.items_mo||[]).find(i=>i.id===obj.itemMOId);if(it&&it.rubro===rubro)obj.itemMONombre=it.nombre;else{obj.itemMOId=0;}}
+  if(!obj.itemMOId){delete obj.itemMOId;delete obj.itemMONombre;}
+  if(eid){const mm0=data.caja.find(x=>x.id===eid);if(mm0&&!obj.itemMOId){delete mm0.itemMOId;delete mm0.itemMONombre;}Object.assign(mm0,obj);}
   else{data.caja.push({id:data.nextId.caja++,...obj});}
   if(eid){const mm=data.caja.find(x=>x.id===eid);if(mm)mm.tipoGasto='real';}
   cajaObraId=parseInt(oid);cajaSubTab='mo';save();closeModal();renderCaja();showToast('✓ Gasto guardado en Caja MO');
@@ -4709,6 +4726,146 @@ function savePagoCliente(oid,eid){
   else{data.caja.push({id:data.nextId.caja++,...obj});}
   save();closeModal();renderCajaDetalle();showToast('✓ Pago del cliente registrado');
 }
+// ── ÍTEMS DE TRABAJO DENTRO DE CADA RUBRO DE MANO DE OBRA ────────────────
+// Ej: Albañilería → Trabajos preliminares, Colocación… · Herrería → Puerta de acceso, Parrilla…
+// Son por obra y por rubro. El pago guarda el id del ítem (si se renombra, se actualiza solo).
+function getItemsMO(oid,rubro){return (data.items_mo||[]).filter(i=>i.obraId===oid&&i.rubro===rubro).sort((a,b)=>a.nombre.localeCompare(b.nombre,'es'));}
+function nombreItemMO(m){
+  if(!m||!m.itemMOId)return '';
+  const it=(data.items_mo||[]).find(i=>i.id===m.itemMOId);
+  return it?it.nombre:(m.itemMONombre||'');
+}
+function refreshItemsMOSelect(oid,selId){
+  const sel=$('f-itemmo'),rs=$('f-rubro');if(!sel||!rs)return;
+  const actual=selId!==undefined?selId:(parseInt(sel.value)||0);
+  const items=getItemsMO(oid,rs.value);
+  sel.innerHTML='<option value="">— Sin ítem —</option>'+items.map(i=>`<option value="${i.id}"${i.id===actual?' selected':''}>${_escH(i.nombre)}</option>`).join('');
+  const lbl=$('f-itemmo-rubro');if(lbl)lbl.textContent=rs.value||'';
+}
+function crearItemMO(oid,rubro,nombre){
+  nombre=(nombre||'').trim();if(!nombre||!rubro)return null;
+  const ya=getItemsMO(oid,rubro).find(i=>i.nombre.toLowerCase()===nombre.toLowerCase());
+  if(ya)return ya;
+  if(!data.items_mo)data.items_mo=[];
+  if(!data.nextId.itemmo)data.nextId.itemmo=1;
+  const it={id:data.nextId.itemmo++,obraId:oid,rubro,nombre};
+  data.items_mo.push(it);
+  return it;
+}
+function agregarItemMODesdeForm(oid){
+  const inp=$('f-itemmo-nuevo'),rs=$('f-rubro');if(!inp||!rs)return;
+  if(!inp.value.trim())return alert('Escribí el nombre del ítem');
+  const it=crearItemMO(oid,rs.value,inp.value);
+  if(!it)return;
+  save();inp.value='';refreshItemsMOSelect(oid,it.id);
+  showToast('✓ Ítem "'+it.nombre+'" agregado a '+rs.value);
+}
+function _num(id){return parseFloat((($(id)||{}).value||'').toString().replace(',','.'))||0;}
+function _ganItemLive(id){
+  const g=_num('itm-c-'+id)-_num('itm-p-'+id),el=$('itm-g-'+id);
+  if(el){el.textContent=(g>0?'+':'')+fmtARS(g);el.style.color=g>=0?'#1a7a4a':'#c0392b';}
+}
+function openModalItemsMO(oid,rubro){
+  const bg=$('modal-bg'),mc=$('modal-content');
+  const items=getItemsMO(oid,rubro);
+  const pagos=data.caja.filter(m=>m.obraId===oid&&m.tipo==='mano_obra'&&m.rubro===rubro);
+  const usoX={};pagos.forEach(m=>{if(m.itemMOId){usoX[m.itemMOId]=(usoX[m.itemMOId]||0)+m.monto;}});
+  const inp=(id,v,extra)=>`<input id="${id}" type="number" value="${v||''}" placeholder="0" ${extra||''} style="width:100%;min-width:95px;padding:6px 8px;border-radius:6px;border:1px solid #d0cfc8;font-size:12px;text-align:right">`;
+  const tC=items.reduce((a,i)=>a+(i.precioCliente||0),0),tP=items.reduce((a,i)=>a+(i.presupProveedor||0),0),tG=tC-tP,tPag=items.reduce((a,i)=>a+(usoX[i.id]||0),0);
+  mc.style.maxWidth='920px';mc.style.width='96vw';
+  mc.innerHTML=`<h2>🏷 Ítems de ${_escH(rubro)}</h2>
+    <div class="modal-hint">Por cada trabajo: lo que le cobrás al cliente y lo que te presupuestó el proveedor. La diferencia es tu ganancia.</div>
+    <div style="background:#f5f4f0;border-radius:8px;padding:10px;margin-bottom:14px">
+      <div style="display:grid;grid-template-columns:2fr 1fr 1fr auto;gap:8px;align-items:end">
+        <div class="form-row" style="margin:0"><label>Ítem nuevo</label><input id="itm-nuevo" placeholder="Ej: Puerta de acceso..." style="padding:7px 10px;border-radius:8px;border:1px solid #d0cfc8"></div>
+        <div class="form-row" style="margin:0"><label style="color:#1a7a4a">💰 Precio cliente</label><input id="itm-nuevo-c" type="number" placeholder="0"></div>
+        <div class="form-row" style="margin:0"><label style="color:#c0392b">🔧 Presup. proveedor</label><input id="itm-nuevo-p" type="number" placeholder="0"></div>
+        <button class="btn btn-primary" onclick="saveItemNuevoMO(${oid},'${_jsq(rubro)}')">+ Agregar</button>
+      </div>
+    </div>
+    ${items.length?`<div style="overflow-x:auto"><table style="font-size:12px;width:100%"><thead><tr>
+      <th>Ítem</th><th style="text-align:right;color:#1a7a4a">💰 Precio cliente</th><th style="text-align:right;color:#c0392b">🔧 Presup. proveedor</th><th style="text-align:right">✨ Ganancia</th><th style="text-align:right">Pagado</th><th></th>
+    </tr></thead><tbody>
+      ${items.map(i=>{const g=(i.precioCliente||0)-(i.presupProveedor||0);return `<tr>
+        <td><input id="itm-n-${i.id}" value="${_escH(i.nombre)}" style="width:100%;min-width:130px;padding:6px 9px;border-radius:6px;border:1px solid #d0cfc8;font-size:12px"></td>
+        <td>${inp('itm-c-'+i.id,i.precioCliente,`oninput="_ganItemLive(${i.id})"`)}</td>
+        <td>${inp('itm-p-'+i.id,i.presupProveedor,`oninput="_ganItemLive(${i.id})"`)}</td>
+        <td id="itm-g-${i.id}" style="text-align:right;white-space:nowrap;font-weight:700;color:${g>=0?'#1a7a4a':'#c0392b'}">${g>0?'+':''}${fmtARS(g)}</td>
+        <td style="text-align:right;white-space:nowrap;color:#c0392b;font-weight:600">${usoX[i.id]?fmtARS(usoX[i.id]):'—'}</td>
+        <td><div class="row-actions">
+          <button class="btn btn-sm btn-edit" onclick="guardarItemMO(${oid},${i.id})">Guardar</button>
+          <button class="btn btn-sm btn-danger" onclick="delItemMO(${oid},${i.id})">Borrar</button>
+        </div></td></tr>`;}).join('')}
+    </tbody>
+    <tfoot><tr style="font-weight:700;background:#f5f4f0;border-top:2px solid #e0dfd8">
+      <td style="padding:8px">TOTAL</td><td style="padding:8px;text-align:right;color:#1a7a4a">${fmtARS(tC)}</td><td style="padding:8px;text-align:right;color:#c0392b">${fmtARS(tP)}</td>
+      <td style="padding:8px;text-align:right;color:${tG>=0?'#1a7a4a':'#c0392b'}">${tG>0?'+':''}${fmtARS(tG)}</td><td style="padding:8px;text-align:right;color:#c0392b">${fmtARS(tPag)}</td><td></td>
+    </tr></tfoot></table></div>`:'<div class="empty">Todavía no hay ítems en este rubro.</div>'}
+    <div class="modal-footer"><button class="btn" onclick="closeModal()">Cerrar</button></div>`;
+  bg.classList.add('open');
+  setTimeout(()=>{const i=$('itm-nuevo');if(i)i.focus();},60);
+}
+function saveItemNuevoMO(oid,rubro){
+  const inp=$('itm-nuevo');if(!inp||!inp.value.trim())return alert('Escribí el nombre del ítem');
+  const it=crearItemMO(oid,rubro,inp.value);
+  if(it){const c=_num('itm-nuevo-c'),p=_num('itm-nuevo-p');if(c)it.precioCliente=c;if(p)it.presupProveedor=p;}
+  save();renderSubTabMO();openModalItemsMO(oid,rubro);
+}
+function guardarItemMO(oid,id){
+  const it=(data.items_mo||[]).find(i=>i.id===id);if(!it)return;
+  const v=(($('itm-n-'+id)||{}).value||'').trim();if(!v)return alert('El nombre no puede quedar vacío');
+  if(getItemsMO(oid,it.rubro).some(i=>i.id!==id&&i.nombre.toLowerCase()===v.toLowerCase()))return alert('Ya existe un ítem con ese nombre en este rubro');
+  it.nombre=v;it.precioCliente=_num('itm-c-'+id);it.presupProveedor=_num('itm-p-'+id);
+  data.caja.forEach(m=>{if(m.itemMOId===id)m.itemMONombre=v;});
+  save();renderSubTabMO();openModalItemsMO(oid,it.rubro);showToast('✓ Ítem guardado');
+}
+function renombrarItemMO(oid,id){return guardarItemMO(oid,id);}
+// Tabla por ítem cuando hay un rubro filtrado en Caja MO
+function renderItemsMOResumen(oid,rubro,moMovs){
+  const pagos=moMovs.filter(m=>m.rubro===rubro);
+  const items=getItemsMO(oid,rubro);
+  const pagX={};let sinItem=0;
+  pagos.forEach(m=>{const it=m.itemMOId&&items.find(i=>i.id===m.itemMOId);if(it)pagX[it.id]=(pagX[it.id]||0)+m.monto;else sinItem+=m.monto;});
+  const btn=`<button class="btn btn-sm" style="background:#eaf1fe;color:#1a6ef5;border:1px solid #c0d8fa" onclick="openModalItemsMO(${oid},'${_jsq(rubro)}')">🏷 Ítems y presupuestos de ${_escH(rubro)}</button>`;
+  if(!items.length&&!sinItem)return `<div style="margin-bottom:10px">${btn}</div>`;
+  let tC=0,tP=0,tPag=0;
+  const filas=items.map(i=>{
+    const c=i.precioCliente||0,p=i.presupProveedor||0,g=c-p,pag=pagX[i.id]||0,sal=p-pag;
+    tC+=c;tP+=p;tPag+=pag;
+    return `<tr>
+      <td style="font-weight:600">${_escH(i.nombre)}</td>
+      <td style="text-align:right;color:#1a7a4a">${c?fmtARS(c):'<span style="color:#ccc">—</span>'}</td>
+      <td style="text-align:right;color:#c0392b">${p?fmtARS(p):'<span style="color:#ccc">—</span>'}</td>
+      <td style="text-align:right;font-weight:700;color:${g>=0?'#1a7a4a':'#c0392b'}">${c||p?(g>0?'+':'')+fmtARS(g):'—'}</td>
+      <td style="text-align:right;font-weight:600">${pag?fmtARS(pag):'—'}</td>
+      <td style="text-align:right;font-weight:700;color:${!p?'#aaa':sal<0?'#c0392b':sal===0?'#1a7a4a':'#b3541e'}">${p?fmtARS(sal):'—'}</td>
+    </tr>`;}).join('');
+  const tG=tC-tP;
+  return `<div style="background:#fff;border:1px solid #d9e4f7;border-radius:10px;padding:12px;margin-bottom:12px">
+    <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;margin-bottom:8px">
+      <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:#555">Ítems de ${_escH(rubro)} · cliente, proveedor y ganancia</div>${btn}
+    </div>
+    <div style="overflow-x:auto"><table style="font-size:12px;width:100%"><thead><tr>
+      <th>Ítem</th><th style="text-align:right;color:#1a7a4a">💰 Precio cliente</th><th style="text-align:right;color:#c0392b">🔧 Presup. proveedor</th><th style="text-align:right">✨ Ganancia</th><th style="text-align:right">Pagado</th><th style="text-align:right">Saldo proveedor</th>
+    </tr></thead><tbody>${filas}
+    ${sinItem?`<tr style="color:#888"><td style="font-style:italic">Pagos sin ítem</td><td colspan="3"></td><td style="text-align:right;font-weight:600">${fmtARS(sinItem)}</td><td></td></tr>`:''}
+    </tbody>
+    <tfoot><tr style="font-weight:700;background:#e8f0fe;border-top:2px solid #c0d8fa">
+      <td style="padding:8px">TOTAL</td><td style="padding:8px;text-align:right;color:#1a7a4a">${fmtARS(tC)}</td><td style="padding:8px;text-align:right;color:#c0392b">${fmtARS(tP)}</td>
+      <td style="padding:8px;text-align:right;color:${tG>=0?'#1a7a4a':'#c0392b'};font-size:14px">${tG>0?'+':''}${fmtARS(tG)}</td>
+      <td style="padding:8px;text-align:right">${fmtARS(tPag+sinItem)}</td><td style="padding:8px;text-align:right;color:#b3541e">${tP?fmtARS(tP-tPag):'—'}</td>
+    </tr></tfoot></table></div>
+  </div>`;
+}
+
+function delItemMO(oid,id){
+  const it=(data.items_mo||[]).find(i=>i.id===id);if(!it)return;
+  const usados=data.caja.filter(m=>m.itemMOId===id).length;
+  if(!confirm('¿Borrar el ítem "'+it.nombre+'"?'+(usados?' Tiene '+usados+' pago(s): los pagos no se borran, quedan "sin ítem".':'')))return;
+  data.items_mo=data.items_mo.filter(i=>i.id!==id);
+  data.caja.forEach(m=>{if(m.itemMOId===id){delete m.itemMOId;delete m.itemMONombre;}});
+  save();renderSubTabMO();openModalItemsMO(oid,it.rubro);
+}
 function agregarRubroExtra(){
   const inp=$('f-rubro-nuevo');
   if(!inp)return;
@@ -4721,6 +4878,7 @@ function agregarRubroExtra(){
   const sel=$('f-rubro');
   if(sel){const opt=document.createElement('option');opt.text=val;opt.selected=true;sel.appendChild(opt);}
   inp.value='';
+  if(cajaObraId)refreshItemsMOSelect(cajaObraId,0);
   showToast('✓ Rubro "'+val+'" agregado');
 }
 
@@ -5065,6 +5223,7 @@ function imprimirPlanillaProveedor(oid){
       <tr style="background:${i%2?'#fafafa':'#fff'}">
         <td style="border:1px solid #ddd;padding:6px 10px">${m.fecha}</td>
         <td style="border:1px solid #ddd;padding:6px 10px">${m.rubro||'—'}</td>
+        <td style="border:1px solid #ddd;padding:6px 10px">${_escH(nombreItemMO(m))||'—'}</td>
         <td style="border:1px solid #ddd;padding:6px 10px">${m.obs||'—'}</td>
         <td style="border:1px solid #ddd;padding:6px 10px">${m.socio===MAT?'Matias':'Ignacio'}</td>
         <td style="border:1px solid #ddd;padding:6px 10px">${m.formaPago||'—'}</td>
@@ -5080,6 +5239,7 @@ function imprimirPlanillaProveedor(oid){
         <thead><tr style="background:#f5f5f5">
           <th style="border:1px solid #ddd;padding:6px 10px">Fecha</th>
           <th style="border:1px solid #ddd;padding:6px 10px">Rubro</th>
+          <th style="border:1px solid #ddd;padding:6px 10px">Ítem</th>
           <th style="border:1px solid #ddd;padding:6px 10px">Observación</th>
           <th style="border:1px solid #ddd;padding:6px 10px">Quién pagó</th>
           <th style="border:1px solid #ddd;padding:6px 10px">F. pago</th>
@@ -5087,7 +5247,7 @@ function imprimirPlanillaProveedor(oid){
         </tr></thead>
         <tbody>${filas}</tbody>
         <tfoot><tr style="font-weight:700;background:#fff3f0">
-          <td colspan="5" style="border:1px solid #ddd;padding:6px 10px;text-align:right">Total ${gremio}:</td>
+          <td colspan="6" style="border:1px solid #ddd;padding:6px 10px;text-align:right">Total ${gremio}:</td>
           <td style="border:1px solid #ddd;padding:6px 10px;text-align:right;color:#c0392b">${fmtARS(info.total)}</td>
         </tr></tfoot>
       </table>
