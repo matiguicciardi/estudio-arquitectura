@@ -2252,6 +2252,7 @@ function renderSubTabMO(){
 
   // Presupuesto pactado con el cliente por rubro
   const getPresup=rubro=>{
+    const ic=clienteItemsMO(oid,rubro);if(ic)return ic;
     const p=(data.presupuesto_rubros||[]).find(p=>p.obraId===oid&&p.rubro===rubro);
     return p?p.monto:0;
   };
@@ -2259,7 +2260,8 @@ function renderSubTabMO(){
   // Todos los rubros que tienen movimientos o presupuesto cargado
   const todosRubros=[...new Set([
     ...Object.keys(pagadoXRubro),
-    ...(data.presupuesto_rubros||[]).filter(p=>p.obraId===oid).map(p=>p.rubro)
+    ...(data.presupuesto_rubros||[]).filter(p=>p.obraId===oid).map(p=>p.rubro),
+    ...(data.items_mo||[]).filter(i=>i.obraId===oid&&i.precioCliente).map(i=>i.rubro)
   ])].sort();
 
   const totalPactado=todosRubros.reduce((a,r)=>a+getPresup(r),0);
@@ -2390,7 +2392,6 @@ function renderSubTabMO(){
     <!-- Movimientos -->
     <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:#555;margin-bottom:8px">💸 Pagos realizados${filtro!=='todos'?' · '+filtro:''} <span style="color:#c0392b">· ${fmtARS(_ctr.totalPagos)}</span></div>
     ${filtrosBtns}
-    ${filtro!=='todos'?renderItemsMOResumen(oid,filtro,moMovs):''}
     ${moFiltrados.length?`<div style="overflow-x:auto"><table style="font-size:12px"><thead><tr>
       <th>Fecha</th><th>Tipo</th><th>Gremio</th><th>Rubro</th><th>Ítem</th><th>Quién</th><th>F.Pago</th><th>Monto</th><th>Obs.</th><th></th>
     </tr></thead><tbody>${rowsMO}</tbody></table></div>`:'<div class="empty">Sin movimientos registrados.</div>'}
@@ -2466,13 +2467,15 @@ function renderContratistasMO(oid,filtro,moMovs){
   let rubros=[...new Set([
     ...(data.presup_contratistas||[]).filter(p=>p.obraId===oid).map(p=>p.rubro),
     ...getExtrasMO(oid).map(e=>e.rubro),
+    ...(data.items_mo||[]).filter(i=>i.obraId===oid).map(i=>i.rubro),
     ...Object.keys(pagadoX)
   ])].sort((a,b)=>a.localeCompare(b,'es'));
   if(filtro!=='todos')rubros=[filtro];
   let tP=0,tE=0,tPag=0,nExtras=0,sinPresup=0,rows='';
   rubros.forEach(r=>{
     const pc=getPresupContr(oid,r);
-    const presup=pc?pc.monto:0;
+    const presup=presupRubroMO(oid,r);
+    const nItems=getItemsMO(oid,r).length;
     const extras=getExtrasMO(oid,r).slice().sort((a,b)=>(a.fecha||'').localeCompare(b.fecha||''));
     const totExtras=extras.reduce((a,e)=>a+e.monto,0);
     const pagado=pagadoX[r]||0;
@@ -2483,18 +2486,18 @@ function renderContratistasMO(oid,filtro,moMovs){
     const pct=total?Math.round(pagado/total*100):0;
     const saldoCol=!total?'#aaa':saldo<0?'#c0392b':saldo===0?'#1a7a4a':'#b3541e';
     rows+=`<tr style="border-top:2px solid #e3e1d8">
-      <td style="font-weight:700">${_escH(r)}${pc&&pc.contratista?`<div style="font-size:11px;font-weight:400;color:#888">👷 ${_escH(pc.contratista)}</div>`:''}</td>
-      <td style="text-align:right">${presup?`<span style="font-weight:700;color:#1a6ef5">${fmtARS(presup)}</span>`:'<span style="color:#bbb;font-style:italic">Sin cargar</span>'}</td>
-      <td style="text-align:right;font-weight:600;color:#6c3fc5">${totExtras?fmtARS(totExtras):'<span style="color:#ccc">—</span>'}</td>
+      <td><a href="#" onclick="irARubroMO('${_jsq(r)}');return false" style="font-size:16px;font-weight:800;text-transform:uppercase;letter-spacing:.4px;color:#1a1a1a;text-decoration:none">${_escH(r)} <span style="font-size:11px;color:#1a6ef5;font-weight:600;text-transform:none">ver detalle →</span></a>${pc&&pc.contratista?`<div style="font-size:12px;font-weight:400;color:#888">👷 ${_escH(pc.contratista)}</div>`:''}</td>
+      <td style="text-align:right">${presup?`<span style="font-weight:700;color:#1a6ef5">${fmtARS(presup)}</span>${nItems?`<div style="font-size:10px;color:#aaa">${nItems} ítem${nItems===1?'':'s'}</div>`:''}`:'<span style="color:#bbb;font-style:italic">Sin cargar</span>'}</td>
+      <td style="text-align:right;font-weight:600;color:#6c3fc5">${totExtras?fmtARS(totExtras)+`<div style="font-size:10px;color:#aaa;font-weight:400">${extras.length} extra${extras.length===1?'':'s'}</div>`:'<span style="color:#ccc">—</span>'}</td>
       <td style="text-align:right;font-weight:700">${total?fmtARS(total):'<span style="color:#ccc">—</span>'}</td>
       <td style="text-align:right;font-weight:600;color:#c0392b">${fmtARS(pagado)}${total?`<div style="font-size:10px;color:#aaa;font-weight:400">${pct}% pagado</div>`:''}</td>
       <td style="text-align:right;font-weight:700;color:${saldoCol}">${total?fmtARS(saldo):'<span style="font-weight:400;font-style:italic;font-size:11px">sin presupuesto</span>'}</td>
       <td><div class="row-actions">
-        <button class="btn btn-sm btn-edit" onclick="openModalPresupContr(${oid},'${_jsq(r)}')">${presup?'✏ Presupuesto':'+ Presupuesto'}</button>
-        <button class="btn btn-sm" style="background:#f3effe;color:#6c3fc5;border:1px solid #d4bdf0" onclick="openModalExtraMO(${oid},'${_jsq(r)}',0)">+ Extra</button>
+        <button class="btn btn-sm btn-primary" onclick="irARubroMO('${_jsq(r)}')">Ítems y extras →</button>
+        <button class="btn btn-sm btn-edit" onclick="openModalPresupContr(${oid},'${_jsq(r)}')">✏ Presupuesto</button>
       </div></td>
     </tr>`;
-    extras.forEach(e=>{
+    if(false)extras.forEach(e=>{
       rows+=`<tr style="background:#faf7ff">
         <td style="padding-left:22px;color:#6c3fc5;font-size:11px">↳ Trabajo extra${e.fecha?` · ${e.fecha}`:''}</td>
         <td colspan="1" style="font-size:12px">${_escH(e.desc||'Sin descripción')}${e.obs?`<div style="font-size:11px;color:#aaa">${_escH(e.obs)}</div>`:''}</td>
@@ -2568,10 +2571,10 @@ function renderContratistasMO(oid,filtro,moMovs){
         </div>
       </div>
       ${rows?`<div style="overflow-x:auto"><table style="font-size:12px;width:100%">
-        <thead><tr><th>Rubro / Contratista</th><th style="text-align:right;color:#1a6ef5">Presupuesto</th><th style="text-align:right;color:#6c3fc5">Extras</th><th style="text-align:right">Total a pagar</th><th style="text-align:right;color:#c0392b">Pagado</th><th style="text-align:right">Saldo</th><th></th></tr></thead>
+        <thead><tr style="font-size:12px"><th style="border-bottom:2px solid #1a1a1a;color:#1a1a1a;font-weight:700">Rubro / Contratista</th><th style="text-align:right;color:#1a6ef5;border-bottom:2px solid #1a1a1a;font-weight:700">Presupuesto</th><th style="text-align:right;color:#6c3fc5;border-bottom:2px solid #1a1a1a;font-weight:700">Extras</th><th style="text-align:right;border-bottom:2px solid #1a1a1a;color:#1a1a1a;font-weight:700">Total a pagar</th><th style="text-align:right;color:#c0392b;border-bottom:2px solid #1a1a1a;font-weight:700">Pagado</th><th style="text-align:right;border-bottom:2px solid #1a1a1a;color:#1a1a1a;font-weight:700">Saldo</th><th style="border-bottom:2px solid #1a1a1a"></th></tr></thead>
         <tbody>${rows}</tbody>
-        ${rubros.length>1?`<tfoot><tr style="border-top:2px solid #c0d8fa;font-weight:700;background:#e8f0fe">
-          <td style="padding:8px">TOTAL</td>
+        ${rubros.length>1?`<tfoot><tr style="border-top:2px solid #1a1a1a;font-weight:700;background:#e8f0fe">
+          <td style="padding:8px;font-size:14px">TOTAL</td>
           <td style="padding:8px;text-align:right;color:#1a6ef5">${fmtARS(tP)}</td>
           <td style="padding:8px;text-align:right;color:#6c3fc5">${fmtARS(tE)}</td>
           <td style="padding:8px;text-align:right">${fmtARS(tTotal)}</td>
@@ -2580,7 +2583,7 @@ function renderContratistasMO(oid,filtro,moMovs){
           <td></td></tr></tfoot>`:''}
       </table></div>`:'<div class="empty">Todavía no hay presupuestos de contratistas. Usá "+ Presupuesto contratista" para cargar el primero.</div>'}
     </div>`;
-  return {resumen,seccion,totalPagos:tPag};
+  return {resumen,seccion:filtro==='todos'?seccion:renderDetalleRubroMO(oid,filtro),totalPagos:tPag};
 }
 function _rubroSelectContr(id,sel){
   return `<select id="${id}"><option value="">— Seleccionar rubro —</option>${rubrosParaContratista().map(r=>`<option value="${_escH(r)}"${r===sel?' selected':''}>${_escH(r)}</option>`).join('')}</select>`;
@@ -2589,7 +2592,7 @@ function openModalPresupContr(oid,rubro){
   const bg=$('modal-bg'),mc=$('modal-content');
   const ex=rubro?getPresupContr(oid,rubro):null;
   mc.innerHTML=`<h2>${ex?'Editar':'Cargar'} presupuesto del contratista</h2>
-    <div class="modal-hint">Lo que acordaste pagarle al contratista por este rubro. Los adicionales se cargan aparte como "Trabajo extra".</div>
+    <div class="modal-hint">Lo que acordaste pagarle al contratista por este rubro. Los adicionales se cargan aparte como "Trabajo extra".${rubro&&presupItemsMO(oid,rubro)?`<br><strong style="color:#1a6ef5">Este rubro tiene ítems: el presupuesto que se usa es la suma de los ítems (${fmtARS(presupItemsMO(oid,rubro))}). El monto de acá queda solo como referencia.</strong>`:''}</div>
     <div class="form-row"><label>Rubro</label>${ex?`<div style="font-size:15px;font-weight:700;color:#1a6ef5">👷 ${_escH(rubro)}</div><input type="hidden" id="pc-rubro" value="${_escH(rubro)}">`:_rubroSelectContr('pc-rubro',rubro)}</div>
     <div class="form-row2">
       <div class="form-row"><label>Contratista (opcional)</label><input id="pc-contratista" value="${_escH(ex?ex.contratista||'':'')}" placeholder="Ej: EDSON, Plomero Juan..."></div>
@@ -2604,7 +2607,7 @@ function openModalPresupContr(oid,rubro){
 }
 function savePresupContr(oid){
   const rubro=gv('pc-rubro');if(!rubro)return alert('Seleccioná un rubro');
-  const monto=parseFloat(($('pc-monto')||{}).value)||0;if(!monto)return alert('Ingresá el presupuesto');
+  const monto=parseFloat(($('pc-monto')||{}).value)||0;if(!monto&&!presupItemsMO(oid,rubro))return alert('Ingresá el presupuesto');
   if(!data.presup_contratistas)data.presup_contratistas=[];
   const contratista=(gv('pc-contratista')||'').trim();
   const ex=getPresupContr(oid,rubro);
@@ -4858,14 +4861,143 @@ function renderItemsMOResumen(oid,rubro,moMovs){
   </div>`;
 }
 
+// ── DETALLE DE UN RUBRO (Caja MO filtrada): resumen presupuesto + ítems + trabajos extras ──
+function presupItemsMO(oid,rubro){return getItemsMO(oid,rubro).reduce((a,i)=>a+(i.presupProveedor||0),0);}
+function clienteItemsMO(oid,rubro){return getItemsMO(oid,rubro).reduce((a,i)=>a+(i.precioCliente||0),0);}
+// Presupuesto del contratista vinculado: si los ítems tienen presupuesto, manda la suma de ítems
+function presupRubroMO(oid,rubro){const it=presupItemsMO(oid,rubro);if(it)return it;const pc=getPresupContr(oid,rubro);return pc?pc.monto:0;}
+function irARubroMO(r){window._moFiltro=r;renderSubTabMO();const el=$('caja-detalle');if(el)el.scrollIntoView({behavior:'smooth',block:'start'});}
+function renderDetalleRubroMO(oid,r){
+  const pc=getPresupContr(oid,r);
+  const items=getItemsMO(oid,r);
+  const pagX={};let sinItem=0,pagado=0;
+  data.caja.filter(m=>m.obraId===oid&&m.tipo==='mano_obra'&&m.rubro===r&&m.tipoGasto!=='proyectado').forEach(m=>{
+    pagado+=m.monto;const it=m.itemMOId&&items.find(i=>i.id===m.itemMOId);
+    if(it)pagX[it.id]=(pagX[it.id]||0)+m.monto;else sinItem+=m.monto;});
+  const tC=items.reduce((a,i)=>a+(i.precioCliente||0),0),tPI=items.reduce((a,i)=>a+(i.presupProveedor||0),0);
+  const manual=pc?pc.monto:0, presup=tPI||manual;
+  const extras=getExtrasMO(oid,r).slice().sort((a,b)=>(a.fecha||'').localeCompare(b.fecha||''));
+  const tE=extras.reduce((a,e)=>a+e.monto,0);
+  const rq=_jsq(r);
+  const mini=(lbl,val,col,sub)=>`<div style="flex:1;min-width:120px"><div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.4px;color:${col}">${lbl}</div><div style="font-size:18px;font-weight:700;color:${col}">${val}</div>${sub?`<div style="font-size:10px;color:#999">${sub}</div>`:''}</div>`;
+  const TH='style="border-bottom:2px solid #1a1a1a;color:#1a1a1a"';
+  const filasItems=items.map(i=>{
+    const c=i.precioCliente||0,p=i.presupProveedor||0,g=c-p,pg=pagX[i.id]||0,sal=p-pg;
+    return `<tr>
+      <td style="font-weight:600">${_escH(i.nombre)}</td>
+      <td style="text-align:right;color:#1a7a4a">${c?fmtARS(c):'<span style="color:#ccc">—</span>'}</td>
+      <td style="text-align:right;color:#1a6ef5;font-weight:600">${p?fmtARS(p):'<span style="color:#ccc">—</span>'}</td>
+      <td style="text-align:right;font-weight:700;color:${g>=0?'#1a7a4a':'#c0392b'}">${c||p?(g>0?'+':'')+fmtARS(g):'—'}</td>
+      <td style="text-align:right;color:#c0392b">${pg?fmtARS(pg):'—'}</td>
+      <td style="text-align:right;font-weight:700;color:${!p?'#aaa':sal<0?'#c0392b':sal===0?'#1a7a4a':'#b3541e'}">${p?fmtARS(sal):'—'}</td>
+      <td><div class="row-actions"><button class="btn btn-sm btn-edit" onclick="openModalItemMO(${oid},'${rq}',${i.id})">Editar</button><button class="btn btn-sm btn-danger" onclick="delItemMO(${oid},${i.id})">Borrar</button></div></td>
+    </tr>`;}).join('');
+  const notaPresup=!items.length&&manual
+    ?`<div style="font-size:11px;color:#888;margin:6px 0 0">Presupuesto cargado sin detalle: <strong>${fmtARS(manual)}</strong>. Si agregás ítems con presupuesto del proveedor, el total pasa a ser la suma de los ítems.</div>`
+    :(tPI&&manual&&manual!==tPI)?`<div style="font-size:11px;color:#b3541e;margin:6px 0 0">⚠ El presupuesto cargado a mano era ${fmtARS(manual)}; los ítems suman ${fmtARS(tPI)} (diferencia ${fmtARS(manual-tPI)}). Se usa la suma de los ítems.</div>`:'';
+  const filasExtras=extras.map(e=>`<tr>
+      <td style="white-space:nowrap">${e.fecha?_fechaAR(e.fecha):'—'}</td>
+      <td style="font-weight:600">${_escH(e.desc||'Sin descripción')}${e.obs?`<div style="font-size:11px;color:#999;font-weight:400">${_escH(e.obs)}</div>`:''}</td>
+      <td style="text-align:right;font-weight:700;color:#6c3fc5">${fmtARS(e.monto)}</td>
+      <td><div class="row-actions"><button class="btn btn-sm btn-edit" onclick="openModalExtraMO(${oid},'${rq}',${e.id})">Editar</button><button class="btn btn-sm btn-danger" onclick="delExtraMO(${e.id})">Borrar</button></div></td>
+    </tr>`).join('');
+  return `
+  <div style="background:#fff;border:1px solid #d9e4f7;border-radius:10px;padding:14px;margin-bottom:18px">
+    <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;margin-bottom:12px">
+      <div>
+        <div style="font-size:20px;font-weight:800;text-transform:uppercase;letter-spacing:.5px;color:#1a1a1a">👷 ${_escH(r)}</div>
+        <div style="font-size:12px;color:#888;margin-top:2px">${pc&&pc.contratista?'Contratista: <strong>'+_escH(pc.contratista)+'</strong>':'Sin contratista asignado'}</div>
+      </div>
+      <div class="row-actions">
+        <button class="btn btn-sm btn-edit" onclick="openModalPresupContr(${oid},'${rq}')">✏ Contratista / presupuesto</button>
+        <button class="btn btn-sm" onclick="window._moFiltro='todos';renderSubTabMO()">← Presupuesto general</button>
+      </div>
+    </div>
+    <div style="display:flex;flex-wrap:wrap;gap:10px;margin-bottom:16px">
+      <div style="flex:2;min-width:300px;background:#eef4ff;border:1px solid #c0d8fa;border-radius:10px;padding:12px">
+        <div style="font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:.5px;color:#1a6ef5;margin-bottom:8px">📋 Resumen presupuesto · ${items.length} ítem${items.length===1?'':'s'}</div>
+        <div style="display:flex;flex-wrap:wrap;gap:10px">
+          ${mini('💰 Precio cliente',fmtARS(tC),'#1a7a4a')}
+          ${mini('🔧 Presup. proveedor',fmtARS(presup),'#1a6ef5',tPI?'suma de ítems':manual?'cargado sin ítems':'')}
+          ${mini('✨ Ganancia',tC?((tC-tPI>0?'+':'')+fmtARS(tC-tPI)):'—',tC-tPI>=0?'#1a7a4a':'#c0392b')}
+        </div>
+      </div>
+      <div style="flex:1;min-width:200px;background:#f6f1ff;border:1px solid #d4bdf0;border-radius:10px;padding:12px">
+        <div style="font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:.5px;color:#6c3fc5;margin-bottom:8px">➕ Resumen trabajos extras</div>
+        <div style="display:flex;flex-wrap:wrap;gap:10px">
+          ${mini('Total extras',fmtARS(tE),'#6c3fc5',extras.length+' extra'+(extras.length===1?'':'s'))}
+        </div>
+      </div>
+    </div>
+
+    <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;margin-bottom:6px">
+      <div style="font-size:12px;font-weight:800;text-transform:uppercase;letter-spacing:.5px;color:#1a6ef5">📋 Ítems del presupuesto</div>
+      <button class="btn btn-sm btn-primary" onclick="openModalItemMO(${oid},'${rq}',0)">+ Ítem</button>
+    </div>
+    ${items.length||sinItem?`<div style="overflow-x:auto"><table style="font-size:12px;width:100%"><thead><tr>
+      <th ${TH}>Ítem</th><th ${TH.replace('color:#1a1a1a','color:#1a7a4a')} align="right">💰 Precio cliente</th><th ${TH.replace('color:#1a1a1a','color:#1a6ef5')} align="right">🔧 Presup. proveedor</th><th ${TH} align="right">✨ Ganancia</th><th ${TH.replace('color:#1a1a1a','color:#c0392b')} align="right">Pagado</th><th ${TH} align="right">Saldo proveedor</th><th ${TH}></th>
+    </tr></thead><tbody>${filasItems}
+    ${sinItem?`<tr style="color:#888"><td style="font-style:italic">Pagos sin ítem asignado</td><td colspan="3"></td><td style="text-align:right">${fmtARS(sinItem)}</td><td colspan="2"></td></tr>`:''}
+    </tbody><tfoot><tr style="font-weight:700;background:#e8f0fe;border-top:2px solid #1a1a1a">
+      <td style="padding:8px">TOTAL</td><td style="padding:8px;text-align:right;color:#1a7a4a">${fmtARS(tC)}</td><td style="padding:8px;text-align:right;color:#1a6ef5">${fmtARS(tPI)}</td>
+      <td style="padding:8px;text-align:right;color:${tC-tPI>=0?'#1a7a4a':'#c0392b'}">${tC||tPI?(tC-tPI>0?'+':'')+fmtARS(tC-tPI):'—'}</td>
+      <td style="padding:8px;text-align:right;color:#c0392b">${fmtARS(pagado)}</td><td style="padding:8px;text-align:right;color:#b3541e">${tPI?fmtARS(tPI-(pagado-sinItem)):'—'}</td><td></td>
+    </tr></tfoot></table></div>`:'<div class="empty" style="padding:10px 0">Todavía no hay ítems. Usá "+ Ítem" (ej: Trabajos preliminares, Colocación, Puerta de acceso…).</div>'}
+    ${notaPresup}
+
+    <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;margin:18px 0 6px">
+      <div style="font-size:12px;font-weight:800;text-transform:uppercase;letter-spacing:.5px;color:#6c3fc5">➕ Trabajos extras</div>
+      <button class="btn btn-sm" style="background:#6c3fc5;color:#fff;border-color:#6c3fc5" onclick="openModalExtraMO(${oid},'${rq}',0)">+ Trabajo extra</button>
+    </div>
+    ${extras.length?`<div style="overflow-x:auto"><table style="font-size:12px;width:100%"><thead><tr>
+      <th ${TH}>Fecha</th><th ${TH}>Descripción</th><th ${TH.replace('color:#1a1a1a','color:#6c3fc5')} align="right">Monto</th><th ${TH}></th>
+    </tr></thead><tbody>${filasExtras}</tbody>
+    <tfoot><tr style="font-weight:700;background:#f6f1ff;border-top:2px solid #1a1a1a"><td colspan="2" style="padding:8px">TOTAL EXTRAS</td><td style="padding:8px;text-align:right;color:#6c3fc5">${fmtARS(tE)}</td><td></td></tr></tfoot></table></div>`
+    :'<div class="empty" style="padding:10px 0">Sin trabajos extras en este rubro.</div>'}
+  </div>`;
+}
+// Alta / edición de un ítem (con precio cliente y presupuesto proveedor)
+function openModalItemMO(oid,rubro,id){
+  const bg=$('modal-bg'),mc=$('modal-content');
+  const it=id?(data.items_mo||[]).find(i=>i.id===id):null;
+  mc.innerHTML=`<h2>${it?'Editar ítem':'+ Ítem'} · ${_escH(rubro)}</h2>
+    <div class="modal-hint">Lo que le cobrás al cliente y lo que te presupuestó el proveedor por este trabajo. La diferencia es tu ganancia.</div>
+    <div class="form-row"><label>Ítem / trabajo</label><input id="it1-nombre" value="${_escH(it?it.nombre:'')}" placeholder="Ej: Trabajos preliminares, Puerta de acceso..."></div>
+    <div class="form-row2">
+      <div class="form-row"><label style="color:#1a7a4a">💰 Precio al cliente ($)</label><input id="it1-c" type="number" value="${it&&it.precioCliente||''}" placeholder="0" oninput="_ganIt1()"></div>
+      <div class="form-row"><label style="color:#1a6ef5">🔧 Presupuesto proveedor ($)</label><input id="it1-p" type="number" value="${it&&it.presupProveedor||''}" placeholder="0" oninput="_ganIt1()"></div>
+    </div>
+    <div style="text-align:center;background:#f5f4f0;border-radius:8px;padding:10px;margin-bottom:6px"><span style="font-size:11px;color:#888;text-transform:uppercase;font-weight:700">✨ Ganancia </span><span id="it1-g" style="font-size:18px;font-weight:700"></span></div>
+    <div class="modal-footer">
+      <button class="btn" onclick="closeModal()">Cancelar</button>
+      ${it?`<button class="btn btn-danger" onclick="closeModal();delItemMO(${oid},${it.id})">Borrar</button>`:''}
+      <button class="btn btn-primary" onclick="saveItemMO(${oid},'${_jsq(rubro)}',${id||0})">Guardar</button>
+    </div>`;
+  bg.classList.add('open');_ganIt1();
+  setTimeout(()=>{const i=$('it1-nombre');if(i)i.focus();},60);
+}
+function _ganIt1(){const g=_num('it1-c')-_num('it1-p'),el=$('it1-g');if(el){el.textContent=(g>0?'+':'')+fmtARS(g);el.style.color=g>=0?'#1a7a4a':'#c0392b';}}
+function saveItemMO(oid,rubro,id){
+  const n=(gv('it1-nombre')||'').trim();if(!n)return alert('Escribí el nombre del ítem');
+  if(getItemsMO(oid,rubro).some(i=>i.id!==id&&i.nombre.toLowerCase()===n.toLowerCase()))return alert('Ya existe un ítem con ese nombre en este rubro');
+  let it=id?(data.items_mo||[]).find(i=>i.id===id):null;
+  if(!it)it=crearItemMO(oid,rubro,n);
+  it.nombre=n;it.precioCliente=_num('it1-c');it.presupProveedor=_num('it1-p');
+  data.caja.forEach(m=>{if(m.itemMOId===it.id)m.itemMONombre=n;});
+  save();closeModal();renderSubTabMO();showToast('✓ Ítem guardado');
+}
 function delItemMO(oid,id){
   const it=(data.items_mo||[]).find(i=>i.id===id);if(!it)return;
+  const desdeLista=!!$('itm-nuevo');
   const usados=data.caja.filter(m=>m.itemMOId===id).length;
   if(!confirm('¿Borrar el ítem "'+it.nombre+'"?'+(usados?' Tiene '+usados+' pago(s): los pagos no se borran, quedan "sin ítem".':'')))return;
   data.items_mo=data.items_mo.filter(i=>i.id!==id);
   data.caja.forEach(m=>{if(m.itemMOId===id){delete m.itemMOId;delete m.itemMONombre;}});
-  save();renderSubTabMO();openModalItemsMO(oid,it.rubro);
+  save();renderSubTabMO();
+  if(desdeLista)openModalItemsMO(oid,it.rubro);
+  showToast('Ítem eliminado');
 }
+
 function agregarRubroExtra(){
   const inp=$('f-rubro-nuevo');
   if(!inp)return;
