@@ -1071,6 +1071,7 @@ function renderCaja(){
       {id:'hon',      label:'🏛 Honorarios',         color:'#6c3fc5'},
       {id:'pdir',     label:'🧾 Pagos directos',     color:'#0d7a6e'},
       {id:'gastorubro',label:'📊 Gasto x Rubro',     color:'#b3541e'},
+      {id:'resmo',    label:'💼 Resultado MO',      color:'#0d5c3f'},
       {id:'gantt',    label:'📅 Gantt',             color:'#2f6f8f'},
     ];
     $('sec-caja').innerHTML=`<div class="card">
@@ -1160,6 +1161,7 @@ function renderSubTabCobrosMO(){
   const saldo=totalRecibido-moGastado;
   const pos=saldo>=0;
 
+  const rubrosImp=[...new Set([...rubrosParaContratista()])];
   let rows='';
   fondos.forEach(f=>{
     const quien=f.socio?(f.socio===MAT?'Matias':'Ignacio'):'—';
@@ -1171,6 +1173,7 @@ function renderSubTabCobrosMO(){
       <td>${fpBadge(f.formaPago||'')}</td>
       <td style="font-weight:700;color:#1a7a4a;font-size:14px">${fmtARS(f.monto)}</td>
       <td style="color:#aaa">${f.obs||'—'}</td>
+      <td><select onchange="imputarCobroMO(${f.id},this.value)" style="font-size:11px;padding:3px 6px;border-radius:6px;border:1px solid #d0cfc8;max-width:140px"><option value="">Sin rubro (prorrateo)</option>${rubrosImp.map(r=>`<option value="${_escH(r)}"${f.rubro===r?' selected':''}>${_escH(r)}</option>`).join('')}</select></td>
       <td><div class="row-actions">
         <button class="btn btn-sm btn-edit" onclick="openModal('editar-fondo-mo',${oid},${f.id})">Editar</button>
         <button class="btn btn-sm btn-danger" onclick="delFondoCobroMO(${f.id})">Borrar</button>
@@ -1208,7 +1211,7 @@ function renderSubTabCobrosMO(){
 
     <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:#555;margin-bottom:8px">Cobros registrados</div>
     ${fondos.length?`<div style="overflow-x:auto"><table style="font-size:12px"><thead><tr>
-      <th>Fecha</th><th>Descripción</th><th>Quién recibió</th><th>F. pago</th><th style="text-align:right">Monto</th><th>Obs.</th><th></th>
+      <th>Fecha</th><th>Descripción</th><th>Quién recibió</th><th>F. pago</th><th style="text-align:right">Monto</th><th>Obs.</th><th>Rubro</th><th></th>
     </tr></thead><tbody>${rows}</tbody>
     <tfoot><tr style="border-top:2px solid #b8e6cc;font-weight:700;background:#edf7f1">
       <td colspan="4" style="padding:8px;font-size:12px;color:#1a7a4a">TOTAL COBRADO</td>
@@ -1551,6 +1554,122 @@ function delCacIndice(mes){
   save();renderSubTabCobrosMO();openModalCacIndices('');
 }
 
+// ── RESULTADO MO: lado CLIENTE vs lado PROVEEDOR, por rubro ───────────────
+// Venta (cliente) = precio pactado por rubro + extras cobrados al cliente (+ ajuste CAC de los planes)
+// Costo (proveedor) = presupuesto del contratista + extras del contratista
+// Caja = cobrado al cliente − pagado a proveedores. Los cobros sin rubro se reparten
+// en proporción a la venta de cada rubro (prorrateo), salvo que los imputes a un rubro.
+function ventaRubroMO(oid,r){
+  const ic=clienteItemsMO(oid,r);if(ic)return ic;
+  const p=(data.presupuesto_rubros||[]).find(x=>x.obraId===oid&&x.rubro===r);return p?p.monto:0;
+}
+function extraCliente(e){return (e.precioCliente!=null&&e.precioCliente!=='')?e.precioCliente:e.monto;}
+function calcResultadoMO(oid){
+  const rubros=[...new Set([
+    ...(data.presupuesto_rubros||[]).filter(p=>p.obraId===oid&&p.monto).map(p=>p.rubro),
+    ...(data.presup_contratistas||[]).filter(p=>p.obraId===oid).map(p=>p.rubro),
+    ...(data.items_mo||[]).filter(i=>i.obraId===oid).map(i=>i.rubro),
+    ...(data.extras_mo||[]).filter(e=>e.obraId===oid).map(e=>e.rubro),
+    ...data.caja.filter(m=>m.obraId===oid&&m.tipo==='mano_obra'&&m.tipoGasto!=='proyectado').map(m=>m.rubro||'Sin rubro')
+  ])].filter(Boolean).sort((a,b)=>a.localeCompare(b,'es'));
+  const fondos=(data.fondos||[]).filter(f=>f.obraId===oid&&f.tipo==='mano_obra');
+  const cac=(typeof getPlanesMO==='function'?getPlanesMO(oid):[]).reduce((a,p)=>a+calcPlanMO(p).interes,0);
+  const rows=rubros.map(r=>{
+    const ex=getExtrasMO(oid,r);
+    const venta=ventaRubroMO(oid,r), exC=ex.reduce((a,e)=>a+extraCliente(e),0);
+    const costo=presupRubroMO(oid,r), exP=ex.reduce((a,e)=>a+e.monto,0);
+    const pagado=data.caja.filter(m=>m.obraId===oid&&m.tipo==='mano_obra'&&m.tipoGasto!=='proyectado'&&(m.rubro||'Sin rubro')===r).reduce((a,m)=>a+m.monto,0);
+    const cobDirecto=fondos.filter(f=>f.rubro===r).reduce((a,f)=>a+f.monto,0);
+    const sinPrecioExtra=ex.some(e=>e.precioCliente==null||e.precioCliente==='');
+    return {r,venta,exC,ventaT:venta+exC,costo,exP,costoT:costo+exP,pagado,cobDirecto,sinPrecioExtra};
+  });
+  const ventaTot=rows.reduce((a,x)=>a+x.ventaT,0);
+  const sinImputar=fondos.filter(f=>!f.rubro||!rubros.includes(f.rubro)).reduce((a,f)=>a+f.monto,0);
+  rows.forEach(x=>{
+    x.cobProrr=ventaTot?sinImputar*x.ventaT/ventaTot:0;
+    x.cobrado=x.cobDirecto+x.cobProrr;
+    x.ganancia=x.ventaT-x.costoT;
+    x.caja=x.cobrado-x.pagado;
+    x.porCobrar=x.ventaT-x.cobrado;
+    x.porPagar=x.costoT-x.pagado;
+  });
+  const S=k=>rows.reduce((a,x)=>a+x[k],0);
+  const cobrado=fondos.reduce((a,f)=>a+f.monto,0), pagado=S('pagado');
+  return {rows,cac,sinImputar,ventaTot,costoTot:S('costoT'),ganancia:S('ganancia'),cobrado,pagado,caja:cobrado-pagado,
+    porCobrar:ventaTot+cac-cobrado,porPagar:S('porPagar'),sinVenta:rows.filter(x=>!x.ventaT&&(x.costoT||x.pagado)).map(x=>x.r),
+    sinCosto:rows.filter(x=>!x.costoT&&x.pagado).map(x=>x.r),extrasSinPrecio:rows.filter(x=>x.sinPrecioExtra).map(x=>x.r)};
+}
+function renderSubTabResultadoMO(){
+  const el=$('caja-detalle');if(!el||!cajaObraId)return;
+  const oid=cajaObraId,R=calcResultadoMO(oid);
+  const col=v=>v<0?'#c0392b':'#1a7a4a';
+  const sg=v=>(v>0?'+':'')+fmtARS(Math.round(v));
+  const card=(lbl,val,c,sub,big,bg)=>`<div class="metric" style="flex:1;min-width:150px;${bg||''}"><div class="metric-label" style="color:${c}">${lbl}</div><div class="metric-value" style="font-size:${big?24:20}px;color:${c}">${val}</div>${sub?`<div style="font-size:10px;color:#888;margin-top:2px">${sub}</div>`:''}</div>`;
+  const margen=R.ventaTot?Math.round(R.ganancia/R.ventaTot*100):0;
+  const proy=R.caja+R.porCobrar-R.porPagar;
+  const TH=t=>`<th style="text-align:right;border-bottom:2px solid #1a1a1a;color:#1a1a1a;font-weight:700">${t}</th>`;
+  const filas=R.rows.map(x=>`<tr>
+      <td><a href="#" onclick="cajaSubTab='mo';irARubroMO('${_jsq(x.r)}');marcarSolapaObra();return false" style="font-weight:800;text-transform:uppercase;color:#1a1a1a;text-decoration:none">${_escH(x.r)}</a></td>
+      <td style="text-align:right;color:#1a7a4a;font-weight:600">${x.ventaT?fmtARS(x.ventaT):'<span style="color:#c0392b;font-size:11px">sin precio</span>'}${x.exC?`<div style="font-size:10px;color:#999">incl. extras ${fmtARS(x.exC)}</div>`:''}</td>
+      <td style="text-align:right;color:#1a6ef5;font-weight:600">${x.costoT?fmtARS(x.costoT):'<span style="color:#c0392b;font-size:11px">sin presupuesto</span>'}${x.exP?`<div style="font-size:10px;color:#999">incl. extras ${fmtARS(x.exP)}</div>`:''}</td>
+      <td style="text-align:right;font-weight:700;color:${col(x.ganancia)}">${x.ventaT&&x.costoT?sg(x.ganancia):'—'}</td>
+      <td style="text-align:right;color:#1a7a4a">${fmtARS(Math.round(x.cobrado))}${x.cobDirecto&&x.cobProrr?'':x.cobProrr?'<div style="font-size:10px;color:#999">prorrateado</div>':''}</td>
+      <td style="text-align:right;color:#c0392b">${fmtARS(x.pagado)}</td>
+      <td style="text-align:right;font-weight:800;color:${col(x.caja)}">${sg(x.caja)}</td>
+      <td style="text-align:right;color:#888">${fmtARS(Math.round(x.porCobrar))}</td>
+      <td style="text-align:right;color:#888">${fmtARS(Math.round(x.porPagar))}</td>
+    </tr>`).join('');
+  const avisos=[];
+  if(R.sinVenta.length)avisos.push(`Sin precio al cliente: <strong>${R.sinVenta.map(_escH).join(', ')}</strong>. Cargalo en Caja MO (ítems con "Precio cliente" o "+ Precio cliente" por rubro); si no, ese rubro figura como que no se le cobra nada al cliente.`);
+  if(R.sinCosto.length)avisos.push(`Con pagos pero sin presupuesto del proveedor: <strong>${R.sinCosto.map(_escH).join(', ')}</strong>.`);
+  if(R.extrasSinPrecio.length)avisos.push(`Hay trabajos extras sin precio al cliente en <strong>${R.extrasSinPrecio.map(_escH).join(', ')}</strong>: se toman como cobrados al cliente al mismo valor que al contratista (sin ganancia). Editalos para cargar lo que le cobrás.`);
+  if(R.sinImputar)avisos.push(`${fmtARS(R.sinImputar)} cobrados al cliente sin rubro asignado: se reparten entre rubros en proporción a lo vendido. Si un cobro corresponde a un rubro puntual, asignáselo en 💰 Cobros MO (columna "Rubro").`);
+  el.innerHTML=`
+  <div style="background:#f3faf6;border:1px solid #b8e6cc;border-radius:12px;padding:16px;margin-bottom:14px">
+    <div style="font-size:14px;font-weight:800;color:#0d5c3f">💼 Resultado de la mano de obra · cliente vs. proveedores</div>
+    <div style="font-size:11px;color:#888;margin:2px 0 14px">Lo que le vendés al cliente y lo que te cuestan los contratistas son dos cuentas distintas. La diferencia es tu ganancia, y lo cobrado menos lo pagado es la plata que tenés en caja.</div>
+
+    <div style="font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:.5px;color:#555;margin-bottom:6px">1 · El negocio (lo pactado)</div>
+    <div style="display:flex;flex-wrap:wrap;gap:10px;margin-bottom:14px">
+      ${card('💰 Venta al cliente',fmtARS(R.ventaTot),'#1a7a4a',R.cac?'+ ajuste CAC '+fmtARS(Math.round(R.cac)):'Precio pactado + extras','', 'background:#edf7f1;border:1px solid #b8e6cc')}
+      ${card('🔧 Costo proveedores',fmtARS(R.costoTot),'#1a6ef5','Presupuestos + extras','','background:#eef4ff;border:1px solid #c0d8fa')}
+      ${card('✨ Ganancia prevista',sg(R.ganancia),col(R.ganancia),'Margen '+margen+'% sobre la venta'+(R.cac?' · sin contar CAC':''),true,`background:#fff;border:2px solid ${col(R.ganancia)}`)}
+    </div>
+
+    <div style="font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:.5px;color:#555;margin-bottom:6px">2 · La caja (lo que pasó)</div>
+    <div style="display:flex;flex-wrap:wrap;gap:10px;margin-bottom:14px">
+      ${card('Cobrado al cliente',fmtARS(R.cobrado),'#1a7a4a')}
+      ${card('Pagado a proveedores',fmtARS(R.pagado),'#c0392b')}
+      ${card('💵 Plata en caja',sg(R.caja),col(R.caja),R.caja>=0?'Cobrado − Pagado':'Pusiste de tu bolsillo',true,`background:${R.caja>=0?'#f0faf3':'#fdf0ef'};border:2px solid ${col(R.caja)}`)}
+    </div>
+
+    <div style="font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:.5px;color:#555;margin-bottom:6px">3 · Lo que falta</div>
+    <div style="display:flex;flex-wrap:wrap;gap:10px;margin-bottom:14px">
+      ${card('Por cobrar al cliente',fmtARS(Math.round(R.porCobrar)),'#b3541e')}
+      ${card('Por pagar a proveedores',fmtARS(Math.round(R.porPagar)),'#b3541e')}
+      ${card('Caja al terminar la obra',sg(Math.round(proy)),col(proy),'Caja + por cobrar − por pagar',true,'background:#fff;border:2px dashed '+col(proy))}
+    </div>
+
+    ${avisos.length?`<div style="background:#fff8ec;border:1px solid #f0d898;border-radius:8px;padding:10px 12px;margin-bottom:14px;font-size:12px;color:#8a6400">${avisos.map(a=>'⚠ '+a).join('<br>')}</div>`:''}
+
+    <div style="font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:.5px;color:#555;margin-bottom:6px">Por rubro</div>
+    <div style="overflow-x:auto;background:#fff;border-radius:8px"><table style="font-size:12px;width:100%"><thead><tr>
+      <th style="border-bottom:2px solid #1a1a1a;color:#1a1a1a;font-weight:700">Rubro</th>${TH('💰 Venta cliente')}${TH('🔧 Costo proveedor')}${TH('✨ Ganancia')}${TH('Cobrado')}${TH('Pagado')}${TH('💵 Caja')}${TH('Por cobrar')}${TH('Por pagar')}
+    </tr></thead><tbody>${filas||'<tr><td colspan="9" class="empty">Sin datos de mano de obra.</td></tr>'}</tbody>
+    <tfoot><tr style="font-weight:800;background:#edf7f1;border-top:2px solid #1a1a1a">
+      <td style="padding:8px">TOTAL</td><td style="padding:8px;text-align:right;color:#1a7a4a">${fmtARS(R.ventaTot)}</td><td style="padding:8px;text-align:right;color:#1a6ef5">${fmtARS(R.costoTot)}</td>
+      <td style="padding:8px;text-align:right;color:${col(R.ganancia)}">${sg(R.ganancia)}</td><td style="padding:8px;text-align:right;color:#1a7a4a">${fmtARS(R.cobrado)}</td>
+      <td style="padding:8px;text-align:right;color:#c0392b">${fmtARS(R.pagado)}</td><td style="padding:8px;text-align:right;color:${col(R.caja)}">${sg(R.caja)}</td>
+      <td style="padding:8px;text-align:right">${fmtARS(Math.round(R.porCobrar-R.cac))}</td><td style="padding:8px;text-align:right">${fmtARS(Math.round(R.porPagar))}</td>
+    </tr></tfoot></table></div>
+  </div>`;
+}
+function imputarCobroMO(id,rubro){
+  const f=(data.fondos||[]).find(x=>x.id===id);if(!f)return;
+  if(rubro)f.rubro=rubro;else delete f.rubro;
+  save();showToast(rubro?'✓ Cobro asignado a '+rubro:'Cobro sin rubro (se prorratea)');
+}
+
 function delFondoCobroMO(id){
   if(!confirm('¿Eliminar este cobro?'))return;
   data.fondos=(data.fondos||[]).filter(f=>f.id!==id);
@@ -1579,6 +1698,7 @@ function renderCajaSubTab(){
   else if(cajaSubTab==='hon')          renderSubTabHon();
   else if(cajaSubTab==='pdir')         renderSubTabPagosDirect();
   else if(cajaSubTab==='gastorubro')   renderSubTabGastoRubro();
+  else if(cajaSubTab==='resmo')        renderSubTabResultadoMO();
   else if(cajaSubTab==='gantt')        renderSubTabGantt();
 }
 
@@ -2382,7 +2502,7 @@ function renderSubTabMO(){
       <div class="row-actions">
         <button class="btn btn-sm btn-primary" onclick="openModal('ingreso-mo',${oid})">+ Registrar pago</button>
         <button class="btn btn-sm" style="background:#edf7f1;color:#1a7a4a;border:1px solid #a8e0b8;font-weight:600" onclick="imprimirPlanillaCliente(${oid})">🖨 Planilla CLIENTE${filtro!=='todos'?' · '+filtro:''}</button>
-        <button class="btn btn-sm" style="background:#e8f0fe;color:#1a6ef5;border:1px solid #c0d8fa;font-weight:600" onclick="imprimirPlanillaMOCliente(${oid})">🖨 Resumen MO Cliente</button>
+        <button class="btn btn-sm" style="background:#e8f0fe;color:#1a6ef5;border:1px solid #c0d8fa;font-weight:600" onclick="imprimirPlanillaMOCliente(${oid})">🖨 Resumen MO Cliente${filtro!=='todos'?' · '+filtro:''}</button>
         <button class="btn btn-sm" style="background:#fdf0ef;color:#c0392b;border:1px solid #f5c0b8;font-weight:600" onclick="imprimirPlanillaProveedor(${oid})">🖨 Planilla PROVEEDOR${filtro!=='todos'?' · '+filtro:''}</button>
       </div>
     </div>
@@ -2628,9 +2748,10 @@ function openModalExtraMO(oid,rubro,id){
     <div class="form-row"><label>Rubro</label>${_rubroSelectContr('ex-rubro',e.rubro||rubro)}</div>
     <div class="form-row"><label>Descripción del trabajo</label><input id="ex-desc" value="${_escH(e.desc||'')}" placeholder="Ej: Revoque medianera, pared adicional..."></div>
     <div class="form-row2">
-      <div class="form-row"><label>Monto ($)</label><input id="ex-monto" type="number" value="${e.monto||''}" placeholder="0"></div>
-      <div class="form-row"><label>Fecha</label><input id="ex-fecha" type="date" value="${e.fecha||today()}"></div>
+      <div class="form-row"><label style="color:#1a6ef5">🔧 Monto al contratista ($)</label><input id="ex-monto" type="number" value="${e.monto||''}" placeholder="0"></div>
+      <div class="form-row"><label style="color:#1a7a4a">💰 Precio al cliente ($)</label><input id="ex-cliente" type="number" value="${e.precioCliente!=null?e.precioCliente:''}" placeholder="Igual al contratista"></div>
     </div>
+    <div class="form-row"><label>Fecha</label><input id="ex-fecha" type="date" value="${e.fecha||today()}"></div>
     <div class="form-row"><label>Observación (opcional)</label><input id="ex-obs" value="${_escH(e.obs||'')}"></div>
     <div class="modal-footer">
       <button class="btn" onclick="closeModal()">Cancelar</button>
@@ -2643,11 +2764,12 @@ function saveExtraMO(oid,id){
   const monto=parseFloat(($('ex-monto')||{}).value)||0;if(!monto)return alert('Ingresá el monto');
   if(!data.extras_mo)data.extras_mo=[];
   if(!data.nextId.extramo)data.nextId.extramo=1;
-  const obj={obraId:oid,rubro,desc:(gv('ex-desc')||'').trim(),monto,fecha:gv('ex-fecha')||today(),obs:(gv('ex-obs')||'').trim()};
+  const pcRaw=(($('ex-cliente')||{}).value||'').trim();
+  const obj={obraId:oid,rubro,desc:(gv('ex-desc')||'').trim(),monto,fecha:gv('ex-fecha')||today(),obs:(gv('ex-obs')||'').trim(),precioCliente:pcRaw===''?null:(parseFloat(pcRaw)||0)};
   const ex=id?data.extras_mo.find(x=>x.id===id):null;
   if(ex)Object.assign(ex,obj);
   else data.extras_mo.push({id:data.nextId.extramo++,...obj});
-  save();closeModal();renderSubTabMO();showToast('✓ Trabajo extra guardado');
+  save();closeModal();renderCajaSubTab();showToast('✓ Trabajo extra guardado');
 }
 function delExtraMO(id){
   if(!confirm('¿Eliminar este trabajo extra?'))return;
@@ -3830,6 +3952,7 @@ function openModal(tipo,extra,editId){
         </select></div>
       </div>
       <div class="form-row"><label>Descripción / Propósito</label><input id="f-desc-ingreso-mo" placeholder="Ej: Desembolso MO enero, cuota 2 MO..."></div>
+      <div class="form-row"><label>¿Para qué rubro es esta plata?</label><select id="f-rubro-ingreso-mo"><option value="">Sin rubro (general, se prorratea)</option>${rubrosParaContratista().map(r=>`<option value="${_escH(r)}"${window._moFiltro===r?' selected':''}>${_escH(r)}</option>`).join('')}</select></div>
       <div class="modal-footer"><button class="btn" onclick="closeModal()">Cancelar</button><button class="btn btn-primary" onclick="saveIngresoMO(${oid})">Guardar</button></div>
     </div>
     <div id="mo-form-pago" style="display:${esEdicion?'block':'none'}">
@@ -4585,8 +4708,9 @@ function saveIngresoMO(oid){
   const desc=gv('f-desc-ingreso-mo')||'';
   const fp=gv('f-fp-ingreso-mo')||'Efectivo';
   const socio=gv('f-socio-ingreso-mo')||MAT;
-  data.fondos.push({id:data.nextId.fondo++,obraId:parseInt(oid),tipo:'mano_obra',monto,fecha,desc,formaPago:fp,socio});
-  save();closeModal();renderCajaDetalle();showToast('✓ Fondos de mano de obra registrados');
+  const rubroF=gv('f-rubro-ingreso-mo')||'';
+  data.fondos.push({id:data.nextId.fondo++,obraId:parseInt(oid),tipo:'mano_obra',monto,fecha,desc,formaPago:fp,socio,...(rubroF?{rubro:rubroF}:{})});
+  save();closeModal();renderCajaDetalle();showToast('✓ Fondos de mano de obra registrados'+(rubroF?' · '+rubroF:''));
 }
 function saveEditarFondo(fid){
   const monto=parseFloat(($('f-monto-fondo')||{}).value)||0;
@@ -5430,11 +5554,12 @@ function imprimirPlanillaMOCliente(oid){
   const fecha=new Date().toLocaleDateString('es-AR',{day:'2-digit',month:'2-digit',year:'numeric'});
 
   // Fondos MO (cargados manualmente en data.fondos)
-  const fondosMO=(data.fondos||[]).filter(f=>f.obraId===oid&&f.tipo==='mano_obra').sort((a,b)=>a.fecha.localeCompare(b.fecha));
+  const rubroSel=(window._moFiltro&&window._moFiltro!=='todos')?window._moFiltro:null;
+  const fondosMO=(data.fondos||[]).filter(f=>f.obraId===oid&&f.tipo==='mano_obra'&&(!rubroSel||f.rubro===rubroSel)).sort((a,b)=>a.fecha.localeCompare(b.fecha));
   // Pagos del cliente registrados en data.caja
-  const pagosCliente=data.caja.filter(m=>m.obraId===oid&&m.tipo==='pago_cliente').sort((a,b)=>a.fecha.localeCompare(b.fecha));
+  const pagosCliente=rubroSel?[]:data.caja.filter(m=>m.obraId===oid&&m.tipo==='pago_cliente').sort((a,b)=>a.fecha.localeCompare(b.fecha));
   // Gastos MO (pagos a gremios)
-  const gastosM0=data.caja.filter(m=>m.obraId===oid&&m.tipo==='mano_obra').sort((a,b)=>a.fecha.localeCompare(b.fecha));
+  const gastosM0=data.caja.filter(m=>m.obraId===oid&&m.tipo==='mano_obra'&&m.tipoGasto!=='proyectado'&&(!rubroSel||m.rubro===rubroSel)).sort((a,b)=>a.fecha.localeCompare(b.fecha));
 
   const totFondos=fondosMO.reduce((a,f)=>a+f.monto,0);
   const totPagosCliente=pagosCliente.reduce((a,m)=>a+m.monto,0);
@@ -5456,6 +5581,35 @@ function imprimirPlanillaMOCliente(oid){
     ...pagosCliente.map(m=>({fecha:m.fecha,desc:m.item||'Pago del cliente',fp:m.formaPago,monto:m.monto,socio:m.socio}))
   ].sort((a,b)=>a.fecha.localeCompare(b.fecha));
 
+  // Movimientos cruzados: lo que entregó el cliente contra lo que se pagó, con saldo acumulado
+  const movs=[
+    ...todosRecibidos.map(r=>({fecha:r.fecha,concepto:r.desc,fp:r.fp,entra:r.monto,sale:0,ord:0})),
+    ...gastosM0.map(m=>({fecha:m.fecha,concepto:[rubroSel?'':m.rubro,m.item,nombreItemMO(m),m.obs].filter(Boolean).join(' · ')||'Pago',fp:m.formaPago,entra:0,sale:m.monto,ord:1}))
+  ].sort((a,b)=>a.fecha.localeCompare(b.fecha)||a.ord-b.ord);
+  let acum=0;
+  const filasMov=movs.map((x,k)=>{acum+=x.entra-x.sale;return `<tr style="background:${k%2?'#fafafa':'#fff'}">
+      <td style="border:1px solid #ddd;padding:7px 10px;white-space:nowrap">${_fechaAR(x.fecha)}</td>
+      <td style="border:1px solid #ddd;padding:7px 10px">${x.entra?'💰 ':'🔧 '}${_escH(x.concepto)}</td>
+      <td style="border:1px solid #ddd;padding:7px 10px;text-align:right;color:#1a7a4a;font-weight:600">${x.entra?fmtARS(x.entra):''}</td>
+      <td style="border:1px solid #ddd;padding:7px 10px;text-align:right;color:#c0392b;font-weight:600">${x.sale?fmtARS(x.sale):''}</td>
+      <td style="border:1px solid #ddd;padding:7px 10px;text-align:right;font-weight:700;color:${acum>=0?'#1a6ef5':'#e67e22'}">${fmtARS(acum)}</td>
+    </tr>`;}).join('');
+  const tablaMov=movs.length?`
+  <div style="font-size:13px;font-weight:700;color:#1a1a1a;margin-bottom:8px;border-left:4px solid #1a1a1a;padding-left:10px">Movimientos${rubroSel?' de '+_escH(rubroSel):''}: entregado por el cliente vs. pagado</div>
+  <table style="width:100%;border-collapse:collapse;margin-bottom:24px;font-size:12px">
+    <thead><tr style="background:#f5f5f5">
+      <th style="border:1px solid #ddd;padding:8px 10px;text-align:left">Fecha</th>
+      <th style="border:1px solid #ddd;padding:8px 10px;text-align:left">Concepto</th>
+      <th style="border:1px solid #ddd;padding:8px 10px;text-align:right;color:#1a7a4a">Entregó el cliente</th>
+      <th style="border:1px solid #ddd;padding:8px 10px;text-align:right;color:#c0392b">Pagado</th>
+      <th style="border:1px solid #ddd;padding:8px 10px;text-align:right">Saldo</th>
+    </tr></thead><tbody>${filasMov}
+    <tr style="background:#f5f5f5;font-weight:700">
+      <td colspan="2" style="border:1px solid #ddd;padding:8px 10px;text-align:right">TOTALES</td>
+      <td style="border:1px solid #ddd;padding:8px 10px;text-align:right;color:#1a7a4a">${fmtARS(totRecibido)}</td>
+      <td style="border:1px solid #ddd;padding:8px 10px;text-align:right;color:#c0392b">${fmtARS(totGastado)}</td>
+      <td style="border:1px solid #ddd;padding:8px 10px;text-align:right;color:${saldo>=0?'#1a6ef5':'#e67e22'};font-size:14px">${fmtARS(saldo)}</td>
+    </tr></tbody></table>`:'<div style="color:#aaa;font-style:italic;margin-bottom:20px">Sin movimientos.</div>';
   const html=`
   <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:20px;padding-bottom:12px;border-bottom:2px solid #1a1a1a">
     <div>
@@ -5469,6 +5623,7 @@ function imprimirPlanillaMOCliente(oid){
 
   <div style="margin-bottom:20px">
     <div style="font-size:18px;font-weight:700">${obra.nombre}</div>
+    ${rubroSel?`<div style="font-size:15px;font-weight:800;color:#1a6ef5;margin-top:4px;text-transform:uppercase">Rubro: ${_escH(rubroSel)}</div>`:''}
     <div style="font-size:13px;color:#888;margin-top:2px">Cliente: <strong>${cliente.nombre}</strong></div>
   </div>
 
@@ -5485,61 +5640,17 @@ function imprimirPlanillaMOCliente(oid){
     <div style="flex:1;min-width:140px;border:2px solid ${saldo>=0?'#1a6ef5':'#e67e22'};border-radius:10px;padding:14px;background:${saldo>=0?'#f0f6ff':'#fff8ec'}">
       <div style="font-size:10px;color:${saldo>=0?'#1a6ef5':'#e67e22'};text-transform:uppercase;letter-spacing:.5px;font-weight:700">Saldo disponible</div>
       <div style="font-size:26px;font-weight:700;color:${saldo>=0?'#1a6ef5':'#e67e22'};margin-top:4px">${fmtARS(saldo)}</div>
-      <div style="font-size:10px;color:#888;margin-top:3px">${saldo>=0?'A favor del cliente':'Pendiente de cobro'}</div>
+      <div style="font-size:10px;color:#888;margin-top:3px">${saldo>=0?'A favor del cliente':'A cargo del cliente (se pagó más de lo entregado)'}</div>
     </div>
   </div>
 
-  <!-- Pagos del cliente -->
-  ${todosRecibidos.length?`
-  <div style="font-size:13px;font-weight:700;color:#1a7a4a;margin-bottom:8px;border-left:4px solid #1a7a4a;padding-left:10px">Pagos realizados por el cliente</div>
-  <table style="width:100%;border-collapse:collapse;margin-bottom:24px;font-size:12px">
-    <thead><tr style="background:#edf7f1">
-      <th style="border:1px solid #ddd;padding:8px 10px;text-align:left">Fecha</th>
-      <th style="border:1px solid #ddd;padding:8px 10px;text-align:left">Concepto</th>
-      <th style="border:1px solid #ddd;padding:8px 10px;text-align:left">Forma de pago</th>
-      <th style="border:1px solid #ddd;padding:8px 10px;text-align:right">Monto</th>
-    </tr></thead><tbody>
-    ${todosRecibidos.map((r,i)=>`<tr style="background:${i%2?'#fafafa':'#fff'}">
-      <td style="border:1px solid #ddd;padding:7px 10px">${r.fecha}</td>
-      <td style="border:1px solid #ddd;padding:7px 10px;font-weight:500">${r.desc}</td>
-      <td style="border:1px solid #ddd;padding:7px 10px">${r.fp||'—'}</td>
-      <td style="border:1px solid #ddd;padding:7px 10px;text-align:right;font-weight:600;color:#1a7a4a">${fmtARS(r.monto)}</td>
-    </tr>`).join('')}
-    <tr style="background:#edf7f1;font-weight:700">
-      <td colspan="3" style="border:1px solid #ddd;padding:8px 10px;text-align:right;font-size:13px">TOTAL ENTREGADO</td>
-      <td style="border:1px solid #ddd;padding:8px 10px;text-align:right;color:#1a7a4a;font-size:14px">${fmtARS(totRecibido)}</td>
-    </tr>
-    </tbody>
-  </table>`:''}
-
-  <!-- Gastos por pago individual -->
-  ${gastosM0.length?`
-  <div style="font-size:13px;font-weight:700;color:#c0392b;margin-bottom:8px;border-left:4px solid #c0392b;padding-left:10px">Gastos ejecutados</div>
-  <table style="width:100%;border-collapse:collapse;margin-bottom:24px;font-size:12px">
-    <thead><tr style="background:#fdf0ef">
-      <th style="border:1px solid #ddd;padding:8px 10px;text-align:left">Fecha</th>
-      <th style="border:1px solid #ddd;padding:8px 10px;text-align:left">Rubro</th>
-      <th style="border:1px solid #ddd;padding:8px 10px;text-align:left">Gremio / Proveedor</th>
-      <th style="border:1px solid #ddd;padding:8px 10px;text-align:right">Monto</th>
-    </tr></thead><tbody>
-    ${gastosM0.map((m,i)=>`<tr style="background:${i%2?'#fafafa':'#fff'}">
-      <td style="border:1px solid #ddd;padding:7px 10px">${m.fecha}</td>
-      <td style="border:1px solid #ddd;padding:7px 10px"><span style="background:#fdf0ef;color:#c0392b;padding:2px 7px;border-radius:10px;font-size:11px;font-weight:600">${m.rubro||'—'}</span></td>
-      <td style="border:1px solid #ddd;padding:7px 10px;font-weight:500">${m.item||'—'}</td>
-      <td style="border:1px solid #ddd;padding:7px 10px;text-align:right;font-weight:600;color:#c0392b">${fmtARS(m.monto)}</td>
-    </tr>`).join('')}
-    <tr style="background:#fdf0ef;font-weight:700">
-      <td colspan="3" style="border:1px solid #ddd;padding:8px 10px;text-align:right;font-size:13px">TOTAL EJECUTADO</td>
-      <td style="border:1px solid #ddd;padding:8px 10px;text-align:right;color:#c0392b;font-size:14px">${fmtARS(totGastado)}</td>
-    </tr>
-    </tbody>
-  </table>`:''}
+  ${tablaMov}
 
   <!-- Cuadro saldo final -->
   <div style="border:2px solid ${saldo>=0?'#1a6ef5':'#e67e22'};border-radius:10px;padding:16px;background:${saldo>=0?'#f0f6ff':'#fff8ec'};margin-bottom:24px">
     <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px">
       <div>
-        <div style="font-size:13px;font-weight:700;color:${saldo>=0?'#1a6ef5':'#e67e22'}">SALDO DISPONIBLE EN MANO DE OBRA</div>
+        <div style="font-size:13px;font-weight:700;color:${saldo>=0?'#1a6ef5':'#e67e22'}">SALDO ${rubroSel?_escH(rubroSel).toUpperCase():'DISPONIBLE EN MANO DE OBRA'}</div>
         <div style="font-size:11px;color:#888;margin-top:3px">Total entregado (${fmtARS(totRecibido)}) − Total ejecutado (${fmtARS(totGastado)})</div>
       </div>
       <div style="font-size:30px;font-weight:700;color:${saldo>=0?'#1a6ef5':'#e67e22'}">${fmtARS(saldo)}</div>
