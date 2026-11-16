@@ -525,23 +525,50 @@ let data={
   nextId:{cliente:5,obra:5,caja:100,interno:20,honorario:4,gasto:1,tablaHon:4,cuota:15,fondo:1,pagodirecto:1,cuotamo:1}
 };
 
-// ── FERIADOS ARGENTINA (nacionales fijos + movibles conocidos) ──────────────
-function getFeriadosAR(anio){
-  // Feriados fijos por mes-dia
-  const fijos=[
-    '01-01','03-03','03-24','04-02','05-01','05-25','06-20','07-09','08-17','10-12','11-20','12-08','12-25'
-  ];
-  // Feriados movibles y puentes conocidos por año (YYYY-MM-DD)
-  const movibles={
-    2025:['2025-03-03','2025-03-04','2025-04-17','2025-04-18','2025-04-21','2025-06-16','2025-11-21','2025-12-26'],
-    2026:['2026-02-16','2026-02-17','2026-03-23','2026-04-02','2026-04-03','2026-06-22','2026-10-09','2026-12-07'],
-    2027:['2027-02-08','2027-02-09','2027-03-23','2027-04-01','2027-04-02','2027-10-08','2027-11-19']
-  };
-  const set=new Set();
-  fijos.forEach(f=>set.add(anio+'-'+f));
-  (movibles[anio]||[]).forEach(f=>set.add(f));
-  return set;
+// ── FERIADOS ARGENTINA (Ley 27.399 + días no laborables turísticos oficiales) ──
+// Se calculan para cualquier año: inamovibles, Carnaval y Semana Santa (según Pascua)
+// y los trasladables con la regla de la ley (mar/mié → lunes anterior; jue/vie → lunes siguiente).
+// Los "puentes" turísticos los fija el Gobierno cada año: se cargan a mano en FERIADOS_PUENTES_AR.
+const FERIADOS_PUENTES_AR={
+  2025:{'2025-05-02':'Día no laborable con fines turísticos','2025-08-15':'Día no laborable con fines turísticos','2025-11-21':'Día no laborable con fines turísticos'},
+  2026:{'2026-03-23':'Día no laborable con fines turísticos','2026-07-10':'Día no laborable con fines turísticos','2026-12-07':'Día no laborable con fines turísticos'}
+  // 2027: todavía no publicados — agregarlos acá cuando salga la resolución oficial
+};
+const _feriadosCache={};
+function _pascuaISO(y){
+  const a=y%19,b=Math.floor(y/100),c=y%100,d=Math.floor(b/4),e=b%4,f=Math.floor((b+8)/25),g=Math.floor((b-f+1)/3);
+  const h=(19*a+b-d-g+15)%30,i=Math.floor(c/4),k=c%4,l=(32+2*e+2*i-h-k)%7,m=Math.floor((a+11*h+22*l)/451);
+  const mes=Math.floor((h+l-7*m+114)/31),dia=((h+l-7*m+114)%31)+1;
+  return y+'-'+String(mes).padStart(2,'0')+'-'+String(dia).padStart(2,'0');
 }
+function getFeriadosARMap(anio){
+  if(_feriadosCache[anio])return _feriadosCache[anio];
+  const m=new Map();
+  const add=(iso,n)=>{if(!m.has(iso))m.set(iso,n);};
+  const inamovibles={'01-01':'Año Nuevo','03-24':'Día de la Memoria','04-02':'Día del Veterano y Caídos en Malvinas','05-01':'Día del Trabajador','05-25':'Revolución de Mayo','06-20':'Paso a la Inmortalidad de Belgrano','07-09':'Día de la Independencia','12-08':'Inmaculada Concepción','12-25':'Navidad'};
+  Object.keys(inamovibles).forEach(md=>add(anio+'-'+md,inamovibles[md]));
+  const pascua=_pascuaISO(anio);
+  add(gAddDays(pascua,-48),'Carnaval');
+  add(gAddDays(pascua,-47),'Carnaval');
+  add(gAddDays(pascua,-2),'Viernes Santo');
+  const trasladables={'06-17':'Paso a la Inmortalidad de Güemes','08-17':'Paso a la Inmortalidad de San Martín','10-12':'Día del Respeto a la Diversidad Cultural','11-20':'Día de la Soberanía Nacional'};
+  Object.keys(trasladables).forEach(md=>{
+    let iso=anio+'-'+md;
+    const dw=gParseDate(iso).getUTCDay();
+    if(dw===2)iso=gAddDays(iso,-1);
+    else if(dw===3)iso=gAddDays(iso,-2);
+    else if(dw===4)iso=gAddDays(iso,4);
+    else if(dw===5)iso=gAddDays(iso,3);
+    add(iso,trasladables[md]+(iso.slice(5)!==md?' (trasladado)':''));
+  });
+  const p=FERIADOS_PUENTES_AR[anio]||{};
+  Object.keys(p).forEach(iso=>add(iso,p[iso]));
+  _feriadosCache[anio]=m;
+  return m;
+}
+function getFeriadosAR(anio){return new Set(getFeriadosARMap(anio).keys());}
+function esFeriadoAR(iso){return getFeriadosARMap(parseInt(iso.slice(0,4))).has(iso);}
+function nombreFeriadoAR(iso){return getFeriadosARMap(parseInt(iso.slice(0,4))).get(iso)||'';}
 function diasHabilesHasta(fechaStr){
   if(!fechaStr)return null;
   // Validar formato YYYY-MM-DD completo antes de procesar
@@ -3348,6 +3375,38 @@ function imprimirGastoRubro(oid){
 
 // ── SUB-TAB GANTT (cronograma por obra) ───────────────────────────────────
 let ganttDragState=null;
+const GANTT_FERIADO_COLOR='#f39c12';
+
+// Si una tarea pasa por un feriado, se corre 1 día el fin por cada feriado (y si arranca
+// en un feriado, se corre el inicio al día siguiente). Cada feriado se aplica una sola vez
+// por tarea (queda guardado en t.feriadosAplicados), así no se vuelve a sumar al re-dibujar.
+function ganttAplicarFeriados(t){
+  if(!t||!t.inicio||!t.fin)return 0;
+  if(!Array.isArray(t.feriadosAplicados))t.feriadosAplicados=[];
+  const aplicados=new Set(t.feriadosAplicados);
+  let sumados=0,guard=0;
+  while(esFeriadoAR(t.inicio)&&!aplicados.has(t.inicio)&&guard++<60){
+    aplicados.add(t.inicio);t.inicio=gAddDays(t.inicio,1);t.fin=gAddDays(t.fin,1);sumados++;
+  }
+  let d=t.inicio;guard=0;
+  while(d<=t.fin&&guard++<4000){
+    if(esFeriadoAR(d)&&!aplicados.has(d)){aplicados.add(d);t.fin=gAddDays(t.fin,1);sumados++;}
+    d=gAddDays(d,1);
+  }
+  t.feriadosAplicados=[...aplicados].sort();
+  return sumados;
+}
+function ganttAplicarFeriadosObra(oid){
+  let total=0;
+  (data.gantt||[]).filter(t=>t.obraId===oid).forEach(t=>{total+=ganttAplicarFeriados(t);});
+  if(total>0)save();
+  return total;
+}
+function ganttFeriadosEnRango(desde,hasta){
+  const out=[];let d=desde,guard=0;
+  while(d<=hasta&&guard++<4000){if(esFeriadoAR(d))out.push(d);d=gAddDays(d,1);}
+  return out;
+}
 
 function ganttComputeRange(oid){
   const tareas=(data.gantt||[]).filter(t=>t.obraId===oid).sort((a,b)=>a.inicio.localeCompare(b.inicio)||a.id-b.id);
@@ -3373,6 +3432,7 @@ function ganttBuildTimeline(oid,opts){
   const rowH=printMode?26:32;
 
   let monthBands='',dayCells='';
+  const feriadosRango=[];
   let cur=rangeStart,curMonthKey=null,curMonthStart=0,curMonthDays=0,monthHtml='';
   for(let i=0;i<totalDays;i++){
     const d=gParseDate(cur);
@@ -3388,8 +3448,11 @@ function ganttBuildTimeline(oid,opts){
     curMonthDays++;
     const dw=d.getUTCDay();
     const isWeekend=dw===0||dw===6;
+    const isFeriado=esFeriadoAR(cur);
+    if(isFeriado)feriadosRango.push(cur);
     const dayBorder=isMonthStart?'2px solid #b7b4a8':(dw===1?'1px solid #d3d1c8':'1px solid #ece9e2');
-    dayCells+=`<div style="position:absolute;left:${i*dayW}px;width:${dayW}px;top:0;height:100%;${isWeekend?'background:#f5f4f0;':''}border-right:${dayBorder};box-sizing:border-box;display:flex;align-items:flex-end;justify-content:center;font-size:${printMode?10:8}px;color:#999;padding-bottom:1px">${dayW>=14?d.getUTCDate():''}</div>`;
+    const cellBg=isFeriado?`background:${GANTT_FERIADO_COLOR};`:(isWeekend?'background:#f5f4f0;':'');
+    dayCells+=`<div ${isFeriado?`title="Feriado: ${nombreFeriadoAR(cur)}"`:''} style="position:absolute;left:${i*dayW}px;width:${dayW}px;top:0;height:100%;${cellBg}border-right:${dayBorder};box-sizing:border-box;display:flex;align-items:flex-end;justify-content:center;font-size:${printMode?10:8}px;color:${isFeriado?'#fff':'#999'};${isFeriado?'font-weight:700;':''}padding-bottom:1px">${dayW>=14?d.getUTCDate():''}</div>`;
     cur=gAddDays(cur,1);
   }
   monthBands+=`<div style="position:absolute;left:${curMonthStart*dayW}px;width:${curMonthDays*dayW}px;top:0;height:100%;display:flex;align-items:center;justify-content:center;font-size:${printMode?13:11}px;font-weight:700;color:#555;border-right:2px solid #b7b4a8;box-sizing:border-box;background:#f0efe8">${monthHtml}</div>`;
@@ -3415,6 +3478,7 @@ function ganttBuildTimeline(oid,opts){
   const gridCss=`background-image:repeating-linear-gradient(to right,${gridStops.join(',')});`;
 
   const trackWidth=totalDays*dayW;
+  const feriadoCols=feriadosRango.map(f=>`<div title="Feriado: ${nombreFeriadoAR(f)}" style="position:absolute;left:${gDiffDays(rangeStart,f)*dayW}px;width:${dayW-1}px;top:0;bottom:0;background:rgba(243,156,18,.35);pointer-events:none"></div>`).join('');
   const stickyCss=printMode?'':'position:sticky;left:0;z-index:2;';
 
   const rows=tareas.map(t=>{
@@ -3438,6 +3502,7 @@ function ganttBuildTimeline(oid,opts){
         </div>
       </div>
       <div style="position:relative;width:${trackWidth}px;min-width:${trackWidth}px;${gridCss}">
+        ${feriadoCols}
         <div class="gantt-bar" id="gantt-bar-${t.id}" style="position:absolute;top:${printMode?6:8}px;left:${left}px;width:${width}px;height:${printMode?18:22}px;border-radius:5px;background:${color};border:${printMode?'1px solid rgba(0,0,0,.25)':'none'};${printMode?'':'cursor:grab;'}display:flex;align-items:center;overflow:hidden" ${dragAttrs} title="${t.tarea}: ${t.inicio} → ${t.fin}">
           ${avance>0?`<div style="position:absolute;left:0;top:0;bottom:0;width:${avance}%;background:rgba(0,0,0,0.18);pointer-events:none"></div>`:''}
           <span id="gantt-lbl-${t.id}" style="position:relative;font-size:${printMode?10:11}px;color:#fff;font-weight:600;padding:0 6px;white-space:nowrap;pointer-events:none;overflow:hidden;text-overflow:ellipsis">${t.tarea}</span>
@@ -3447,19 +3512,31 @@ function ganttBuildTimeline(oid,opts){
     </div>`;
   }).join('');
 
-  return {tareas,dayW,infoW,trackWidth,monthBands,dayCells,rows,todayLine,rangeStart,rowH};
+  // Lista de feriados desde hoy hasta que termina el Gantt
+  const finGantt=tareas.length?tareas.reduce((m,t)=>t.fin>m?t.fin:m,tareas[0].fin):hoy;
+  const feriadosProx=ganttFeriadosEnRango(hoy,finGantt);
+  const feriadosHtml=feriadosProx.length
+    ?`<div style="margin-top:12px;border:1px solid #f5d29a;background:#fff8ec;border-radius:10px;padding:10px 14px">
+        <div style="font-size:${printMode?12:12}px;font-weight:700;color:#b36b00;margin-bottom:6px">🟧 Feriados de hoy hasta el fin del cronograma (${gFmtShort(finGantt)}): ${feriadosProx.length}</div>
+        <div style="display:flex;flex-wrap:wrap;gap:6px 14px;font-size:11px;color:#555">${feriadosProx.map(f=>{const dd=gParseDate(f);const dn=['dom','lun','mar','mié','jue','vie','sáb'][dd.getUTCDay()];return `<span><b>${dn} ${dd.getUTCDate()}/${dd.getUTCMonth()+1}/${dd.getUTCFullYear()}</b> · ${nombreFeriadoAR(f)}</span>`;}).join('')}</div>
+      </div>`
+    :`<div style="margin-top:12px;font-size:11px;color:#aaa">No hay feriados entre hoy y el fin del cronograma.</div>`;
+
+  return {tareas,dayW,infoW,trackWidth,monthBands,dayCells,rows,todayLine,rangeStart,rowH,feriadosHtml};
 }
 
 function renderSubTabGantt(){
   const el=$('caja-detalle'); if(!el||!cajaObraId)return;
   const oid=cajaObraId;
+  const corridos=ganttAplicarFeriadosObra(oid);
+  if(corridos>0)setTimeout(()=>showToast('🟧 Se sumaron '+corridos+' día(s) por feriados'),50);
   const tl=ganttBuildTimeline(oid,{printMode:false});
 
   el.innerHTML=`
   <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;margin-bottom:12px">
     <div>
       <div style="font-size:13px;font-weight:700;color:#2f6f8f">📅 Cronograma de obra (Gantt)</div>
-      <div style="font-size:11px;color:#aaa;margin-top:2px">Arrastrá el centro de una tarea para moverla, o los bordes para estirar el inicio/fin. Doble clic o ✏ para editar. El cuadriculado marca cada día (franja gris = fin de semana).</div>
+      <div style="font-size:11px;color:#aaa;margin-top:2px">Arrastrá el centro de una tarea para moverla, o los bordes para estirar el inicio/fin. Doble clic o ✏ para editar. El cuadriculado marca cada día (franja gris = fin de semana, <span style="color:#d68100;font-weight:700">naranja = feriado</span>). Si una tarea pasa por un feriado, su fin se corre 1 día automáticamente.</div>
     </div>
     <div class="row-actions">
       <button class="btn btn-sm" style="background:#f5f4f0;border:1px solid #d0cfc8" onclick="imprimirGantt(${oid})">🖨 Imprimir (hoja A1)</button>
@@ -3480,7 +3557,8 @@ function renderSubTabGantt(){
       ${tl.todayLine}
       ${tl.rows}
     </div>
-  </div>`:'<div class="empty">Todavía no hay tareas cargadas en el cronograma de esta obra. Creá la primera con "+ Nueva tarea".</div>'}
+  </div>
+  ${tl.feriadosHtml}`:'<div class="empty">Todavía no hay tareas cargadas en el cronograma de esta obra. Creá la primera con "+ Nueva tarea".</div>'}
   `;
 }
 
@@ -3546,9 +3624,10 @@ function ganttEndDrag(){
   if(st.newInicio===st.origInicio&&st.newFin===st.origFin)return;
   t.inicio=st.newInicio;
   t.fin=st.newFin;
+  const nf=ganttAplicarFeriados(t);
   save();
   renderSubTabGantt();
-  showToast('✓ Fechas actualizadas');
+  showToast(nf?('✓ Fechas actualizadas · +'+nf+' día(s) por feriado'):'✓ Fechas actualizadas');
 }
 
 function openModalGanttTask(oid,tid){
@@ -3611,11 +3690,18 @@ function saveGanttTask(oid,tid){
   if(!data.gantt)data.gantt=[];
   if(tid){
     const t=data.gantt.find(x=>x.id===tid);
-    if(t){t.rubro=rubro;t.tarea=tarea;t.inicio=inicio;t.fin=fin;t.avance=avance;}
+    if(t){
+      // Si se cambiaron las fechas a mano, se respetan y se recalculan los feriados desde cero
+      if(t.inicio!==inicio||t.fin!==fin)t.feriadosAplicados=[];
+      t.rubro=rubro;t.tarea=tarea;t.inicio=inicio;t.fin=fin;t.avance=avance;
+      ganttAplicarFeriados(t);
+    }
   }else{
     if(!data.nextId)data.nextId={};
     if(!data.nextId.gantt)data.nextId.gantt=1;
-    data.gantt.push({id:data.nextId.gantt++,obraId:oid,rubro,tarea,inicio,fin,avance});
+    const nt={id:data.nextId.gantt++,obraId:oid,rubro,tarea,inicio,fin,avance,feriadosAplicados:[]};
+    ganttAplicarFeriados(nt);
+    data.gantt.push(nt);
   }
   save();closeModal();renderSubTabGantt();showToast('✓ Tarea guardada');
 }
@@ -3665,8 +3751,10 @@ function imprimirGantt(oid){
   <div style="margin-top:10px;display:flex;gap:16px;align-items:center;font-size:10px;color:#888">
     <span style="display:inline-flex;align-items:center;gap:5px"><span style="width:16px;height:2px;background:#c0392b;display:inline-block"></span>Hoy</span>
     <span style="display:inline-flex;align-items:center;gap:5px"><span style="width:12px;height:12px;background:#f7f6f0;border:1px solid #dedbd0;display:inline-block"></span>Fin de semana</span>
+    <span style="display:inline-flex;align-items:center;gap:5px"><span style="width:12px;height:12px;background:#f39c12;display:inline-block"></span>Feriado</span>
     <span>Cada línea vertical = 1 día · Cada columna sombreada del encabezado = 1 mes completo</span>
-  </div>`:'<div style="text-align:center;color:#888;padding:20px">Sin tareas cargadas en el cronograma de esta obra.</div>'}
+  </div>
+  ${tl.feriadosHtml}`:'<div style="text-align:center;color:#888;padding:20px">Sin tareas cargadas en el cronograma de esta obra.</div>'}
   <div style="margin-top:24px;padding-top:12px;border-top:1px solid #ddd;font-size:11px;color:#aaa;text-align:center">
     Documento generado el ${fecha} · Estudio de Arquitectura
   </div>`;
