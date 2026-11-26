@@ -2272,7 +2272,7 @@ function renderSubTabCC(){
       const we=getWeekEndCC(m.fecha);
       const wtot=weekTotalsCC[wk]||0;
       rowsCC+=`<tr style="border-top:3px solid #c8a200;background:transparent;pointer-events:none">
-        <td colspan="8" style="padding:4px 8px;border-bottom:none;border-top:none">
+        <td colspan="9" style="padding:4px 8px;border-bottom:none;border-top:none">
           <span style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.6px;color:#8a6400;background:#fff8ec;padding:2px 8px;border-radius:4px;border:1px solid #f0d898">
             📅 Semana del ${ws} al ${we}${wtot?` · Gastado: <strong>${fmtARS(wtot)}</strong>`:''}
           </span>
@@ -2283,7 +2283,7 @@ function renderSubTabCC(){
       const we=getWeekEndCC(m.fecha);
       const wtot=weekTotalsCC[wk]||0;
       rowsCC+=`<tr style="background:transparent;pointer-events:none">
-        <td colspan="8" style="padding:4px 8px;border-bottom:none">
+        <td colspan="9" style="padding:4px 8px;border-bottom:none">
           <span style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.6px;color:#8a6400;background:#fff8ec;padding:2px 8px;border-radius:4px;border:1px solid #f0d898">
             📅 Semana del ${ws} al ${we}${wtot?` · Gastado: <strong>${fmtARS(wtot)}</strong>`:''}
           </span>
@@ -2293,6 +2293,7 @@ function renderSubTabCC(){
     lastWeekCC=wk;
     if(m._tipo==='fondo'){
       rowsCC+=`<tr style="background:#fffdf0">
+        <td></td>
         <td>${m.fecha}</td><td><span class="badge badge-green">+ Cliente</span></td>
         <td colspan="2">${m.desc||'Fondos recibidos'}</td>
         <td style="color:#888">${m.socio?(m.socio===MAT?'Matias':'Ignacio'):'—'}</td>
@@ -2305,7 +2306,9 @@ function renderSubTabCC(){
     } else {
       const r=(m.rubro&&m.rubro!=='Caja chica')?m.rubro:'Sin clasificar';
       const esProy=m.tipoGasto==='proyectado';
-      rowsCC+=`<tr${esProy?' style="background:#f8f5fd"':''}>
+      const guard=!!m.facturaGuardada;
+      rowsCC+=`<tr${esProy?' style="background:#f8f5fd"':(guard?' style="background:#f0faf3"':'')}>
+        <td style="text-align:center">${esProy?'':checkGuardada('cc',m.id,guard)}</td>
         <td>${m.fecha}</td><td><span class="badge badge-amber">− Gasto</span>${esProy?' <span class="badge" style="background:#f3effe;color:#6c3fc5"><span style="color:#000">*</span> Proyectado</span>':''}</td>
         <td><strong>${m.item||'—'}</strong>${m.obs?`<br><span style="color:#aaa">${m.obs}</span>`:''}</td>
         <td><span style="background:#f3effe;color:#6c3fc5;padding:2px 7px;border-radius:20px;font-size:11px;font-weight:600">${r}</span></td>
@@ -2375,8 +2378,9 @@ function renderSubTabCC(){
       ${rubrosCC.map(([r])=>`<button class="btn btn-sm" style="${filtroCC===r?'background:#8a6400;color:#fff;border-color:#8a6400':'background:#fff8ec;color:#8a6400;border:1px solid #f0d898'}" onclick="window._ccFiltro='${r.replace(/'/g,"\\'")}';renderSubTabCC()">${r} <span style="opacity:.7;font-size:10px">(${fmtARS(porRubroCC[r]||0)})</span></button>`).join('')}
       ${filtroCC!=='todos'?`<span style="margin-left:6px;font-size:12px;color:#c0392b;font-weight:600">Total ${filtroCC}: ${fmtARS(totFiltroCC)}</span>`:''}
     </div>`:''}
+    ${contadorGuardadas(gastosCCReal)}
     ${ccMovs.length?`<div style="overflow-x:auto"><table style="font-size:12px"><thead><tr>
-      <th>Fecha</th><th>Tipo</th><th>Descripción</th><th>Rubro</th><th>Quién</th><th>F.Pago</th><th>Monto</th><th></th>
+      <th style="text-align:center" title="Factura guardada en la carpeta del cliente">📁</th><th>Fecha</th><th>Tipo</th><th>Descripción</th><th>Rubro</th><th>Quién</th><th>F.Pago</th><th>Monto</th><th></th>
     </tr></thead><tbody>${rowsCC}</tbody></table></div>`:'<div class="empty">Sin movimientos en caja chica.</div>'}
   </div>`;
 }
@@ -2927,6 +2931,24 @@ function toggleCuota(tablaId,cuotaId){
   save();renderSubTabHon();showToast(cuota.pagado?'✓ Marcado como cobrado':'Desmarcado');
 }
 
+// ── FACTURA GUARDADA EN CARPETA (check por renglón) ───────────
+function checkGuardada(tipo,id,on){
+  return `<input type="checkbox" ${on?'checked':''} onclick="toggleFacturaGuardada('${tipo}',${id})" title="${on?'Factura guardada en la carpeta':'Marcar: factura guardada en la carpeta'}" style="width:17px;height:17px;cursor:pointer;accent-color:#1a7a4a;margin:0">`;
+}
+function toggleFacturaGuardada(tipo,id){
+  const lista=tipo==='pd'?(data.pagos_directos||[]):data.caja;
+  const m=lista.find(x=>x.id===id); if(!m)return;
+  m.facturaGuardada=!m.facturaGuardada;
+  save();
+  if(tipo==='pd')renderSubTabPagosDirect(); else renderSubTabCC();
+  showToast(m.facturaGuardada?'📁 Factura marcada como guardada':'Factura desmarcada');
+}
+function contadorGuardadas(lista){
+  if(!lista.length)return '';
+  const g=lista.filter(m=>m.facturaGuardada).length, t=lista.length, ok=g===t;
+  return `<div style="font-size:12px;margin-bottom:8px;color:${ok?'#1a7a4a':'#8a6400'};font-weight:600">📁 Facturas guardadas en carpeta: ${g} de ${t}${ok?' ✓':` · faltan ${t-g}`}</div>`;
+}
+
 // ── SUB-TAB PAGOS DIRECTOS ────────────────────────────────────
 function renderSubTabPagosDirect(){
   const el=$('caja-detalle'); if(!el||!cajaObraId)return;
@@ -2936,7 +2958,9 @@ function renderSubTabPagosDirect(){
 
   let rows='';
   movs.forEach(m=>{
-    rows+=`<tr>
+    const guard=!!m.facturaGuardada;
+    rows+=`<tr${guard?' style="background:#f0faf3"':''}>
+      <td style="text-align:center">${checkGuardada('pd',m.id,guard)}</td>
       <td>${m.fecha}</td>
       <td><strong>${m.proveedor||'—'}</strong></td>
       <td>${m.desc||'—'}</td>
@@ -2964,8 +2988,9 @@ function renderSubTabPagosDirect(){
       <div class="metric-label" style="color:#0d7a6e">Total pagado directo</div>
       <div class="metric-value" style="color:#0d7a6e;font-size:22px">${fmtARS(total)}</div>
     </div>`:''}
+    ${contadorGuardadas(movs)}
     ${movs.length?`<div style="overflow-x:auto"><table style="font-size:12px"><thead><tr>
-      <th>Fecha</th><th>Proveedor</th><th>Descripción</th><th>Rubro</th><th>F.Pago</th><th>Monto</th><th>Obs.</th><th></th>
+      <th style="text-align:center" title="Factura guardada en la carpeta del cliente">📁</th><th>Fecha</th><th>Proveedor</th><th>Descripción</th><th>Rubro</th><th>F.Pago</th><th>Monto</th><th>Obs.</th><th></th>
     </tr></thead><tbody>${rows}</tbody></table></div>`:'<div class="empty">Sin pagos directos registrados para esta obra.</div>'}
   </div>`;
 }
